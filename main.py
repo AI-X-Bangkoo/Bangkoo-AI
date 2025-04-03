@@ -8,7 +8,7 @@ app = FastAPI()
 app.include_router(recommend_router, prefix="/ai")
 app.include_router(search_router, prefix="/ai")
 
-# 기본 헬스체크
+# 기본 헬스 체크
 @app.get("/")
 def read_root():
     return {"status": "ok"}
