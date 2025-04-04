@@ -1,5 +1,16 @@
 import re
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-04
+
+하이브리드 검색 필터링 모듈
+
+- 가격 범위, 키워드, 스타일 필터링 기능 제공
+- 검색 결과를 정제하고 사용자 조건에 맞는 제품만 반환
+"""
+
+
 def apply_filters(products, price_range=None, keyword=None, style=None):
     filtered = []
 

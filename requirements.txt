@@ -8,4 +8,7 @@ numpy
 google-generativeai
 python-dotenv
 pymongo
-
+openai
+timm
+einops
+python-multipart

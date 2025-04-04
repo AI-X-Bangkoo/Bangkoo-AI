@@ -6,6 +6,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-04
+
+MongoDB upload
+
+- clip_metadata_v3.json(제품 데이터)
+  ko_synonyms.json(동의어 사전) 
+  DB에 업로드
+"""
+
 load_dotenv()
 MONGO_URI = os.getenv("MONGO_URI")
 
@@ -21,21 +32,15 @@ BASE_DIR = Path(__file__).resolve().parent
 
 collection = db["products"]
 
-# with open("json/clip_metadata_v3.json", encoding="utf-8") as f:
-#     metadata = json.load(f)
 
 with open(BASE_DIR / "json" / "clip_metadata_v3.json", encoding="utf-8") as f:
     metadata = json.load(f)
-    
-# with open("json/ko_synonyms.json", encoding="utf-8") as f:
-#     synonyms = json.load(f)
-    
+
 with open(BASE_DIR / "json" / "ko_synonyms.json", encoding="utf-8") as f:
-    metadata = json.load(f)
+    synonyms = json.load(f)
 
 image_embeddings = np.load(BASE_DIR / "npy" / "image_embeddings.npy")
 text_embeddings = np.load(BASE_DIR / "npy" / "product_text_embeddings_v3.npy")
-# text_embeddings = np.load("npy/product_text_embeddings_v3.npy")
 
 for i, item in enumerate(metadata):
     doc = {
