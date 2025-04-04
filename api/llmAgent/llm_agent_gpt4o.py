@@ -1,28 +1,28 @@
 import json
 import base64
-import google.generativeai as genai
+import openai
 from tempfile import NamedTemporaryFile
 from fastapi import UploadFile
-import os
 from dotenv import load_dotenv
 from api.search.hybrid_search import hybrid_search
+from api.search.filters import apply_filters
+import os
 
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-04
 
-Gemini 기반 AI 추천 모듈
+GPT-4o 기반 AI 추천 모듈
 
-- 방 이미지를 분석하여 스타일 설명을 생성
-- 사용자 쿼리와 스타일 설명을 조합해 후보 제품 추천
-- 후보 제품들을 Gemini를 통해 재랭킹하여 최종 3개 추천
+- 이미지(base64 인코딩)를 GPT-4o에 전달하여 방 스타일 설명 생성
+- Semantic Search로 유사 제품 후보 추출
+- GPT-4o로 재랭킹하여 최종 추천 결과 생성
 """
- 
-load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# 모델 지정
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+# 환경변수 로드 및 클라이언트 설정
+load_dotenv()
+oai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # 1. 방 스타일 설명 생성
 def get_room_style_description(image_path):
@@ -46,16 +46,19 @@ def get_room_style_description(image_path):
 """
     with open(image_path, "rb") as f:
         image_bytes = f.read()
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-    response = model.generate_content([
-        prompt,
-        {
-            "mime_type": "image/jpeg",
-            "data": image_bytes
-        }
-    ])
-    return response.text.strip()
-
+    response = oai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+            ]}
+        ],
+        temperature=0.4
+    )
+    return response.choices[0].message.content.strip()
 
 # 2. 재랭킹 추천 생성
 def rerank_ai_recommendations(
@@ -68,7 +71,6 @@ def rerank_ai_recommendations(
     keyword=None,
     style=None
 ):
-    # 1. 후보 제품 설명
     product_descriptions = "\n\n".join([
         f"""
         이름: {p['이름']}
@@ -82,7 +84,6 @@ def rerank_ai_recommendations(
         for p in candidate_products
     ])
 
-    # 2. 필터 조건 문자열 생성
     filter_info = ""
     if min_price is not None and max_price is not None:
         filter_info += f"- 가격대: {min_price:,} ~ {max_price:,}원\n"
@@ -91,7 +92,6 @@ def rerank_ai_recommendations(
     if style:
         filter_info += f"- 원하는 스타일: {style}\n"
 
-    # 3. 프롬프트 생성
     prompt = f"""
 당신은 인테리어 전문가입니다.
 
@@ -101,7 +101,6 @@ def rerank_ai_recommendations(
 [사용자 요청]
 {query}
 """
-
     if filter_info:
         prompt += f"\n[필터 조건]\n{filter_info}"
 
@@ -119,7 +118,7 @@ def rerank_ai_recommendations(
 
 [추천 후보 제품 목록]
 아래 제품들은 Semantic Search를 통해 선별된 후보입니다.
-이 중에서 방 스타일과 사용자 요청, 필터 조건에 가장 적합한 3개 제품을 골라 주세요.
+이 중에서 방 스타일, 사용자 요청, 필터 조건에 가장 적합한 3개 제품을 골라 주세요.
 
 {product_descriptions}
 
@@ -139,15 +138,16 @@ def rerank_ai_recommendations(
   ...
 ]
 """
-    response = model.generate_content(prompt)
-    return response.text.strip()
 
+    response = oai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+    return response.choices[0].message.content.strip()
 
-
-def get_semantic_candidates(query: str, top_k=10):
-    return hybrid_search(query, top_k=top_k)
-
-# 3. FastAPI용 통합 추천 함수
+# 3. FastAPI용 통합 함수
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
@@ -156,37 +156,28 @@ async def recommend_with_ai_agent(
     keyword: str = None,
     style: str = None
 ):
-    # 1. 이미지 파일 임시 저장
     temp_file = NamedTemporaryFile(delete=False, suffix=".jpg")
     temp_file.write(await image_file.read())
     temp_file.close()
 
-    # 2. 스타일 설명 생성
     room_style = get_room_style_description(temp_file.name)
-
-    # 3. 쿼리 + 스타일 기반 하이브리드 검색
     semantic_query = f"{room_style} {query}"
-    candidates = get_semantic_candidates(semantic_query, top_k=50)
+    candidates = hybrid_search(semantic_query, top_k=50)
 
-    # 4. 필터 적용
     price_range = (min_price, max_price) if min_price is not None and max_price is not None else None
     filtered_candidates = apply_filters(candidates, price_range, keyword, style)
 
-    # 5. 후보가 부족하면 fallback
     if len(filtered_candidates) < 3:
         filtered_candidates = candidates[:10]
 
-    # 6. Gemini 기반 재랭킹 (최대 10개 중 3개 추천)
     result = rerank_ai_recommendations(
-    room_style,
-    query,
-    filtered_candidates[:10],
-    min_price=min_price,
-    max_price=max_price,
-    keyword=keyword,
-    style=style
-)
-
+        room_style,
+        query,
+        filtered_candidates[:10],
+        min_price=min_price,
+        max_price=max_price,
+        keyword=keyword,
+        style=style
+    )
 
     return json.loads(result)
-
