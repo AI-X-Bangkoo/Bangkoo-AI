@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+torch
+transformers
+sentence-transformers
+scikit-learn
+numpy
+google-generativeai
+python-dotenv
+pymongo
+openai
+timm
+einops
+python-multipart
