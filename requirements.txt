@@ -12,3 +12,4 @@ openai
 timm
 einops
 python-multipart
+"pymongo[srv]"

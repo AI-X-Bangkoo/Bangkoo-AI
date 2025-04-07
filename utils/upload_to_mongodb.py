@@ -12,7 +12,7 @@ import os
 
 MongoDB upload
 
-- clip_metadata_v3.json(제품 데이터)
+- clip_metadata_v4.json(제품 데이터)
   ko_synonyms.json(동의어 사전) 
   DB에 업로드
 """
@@ -24,7 +24,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 client = MongoClient(MONGO_URI)
 db = client["bangkoo"]
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 # ============================
 # 1. 제품 데이터 업로드
@@ -33,7 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent
 collection = db["products"]
 
 
-with open(BASE_DIR / "json" / "clip_metadata_v3.json", encoding="utf-8") as f:
+with open(BASE_DIR / "json" / "clip_metadata_v4.json", encoding="utf-8") as f:
     metadata = json.load(f)
 
 with open(BASE_DIR / "json" / "ko_synonyms.json", encoding="utf-8") as f:
@@ -51,6 +51,7 @@ for i, item in enumerate(metadata):
         "link": item["링크"],
         "imageUrl": item["이미지"],
         "csv": item["csv"],
+        "category": item["키워드카테고리"],
         "imageEmbedding": image_embeddings[i].astype(float).tolist(),
         "textEmbedding": text_embeddings[i].astype(float).tolist(),
         "createdAt": datetime.utcnow()

@@ -8,6 +8,17 @@ import re
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from utils.markdown_utils import extract_json_from_markdown
+from collections import Counter
+
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-04
+
+gemini 기반 AI 추천 모듈
+
+- Semantic Search로 유사 제품 후보 추출
+- gemini로 재랭킹하여 최종 추천 결과 생성
+"""
 
 load_dotenv()
 
@@ -25,6 +36,7 @@ mongo_client = MongoClient(
 
 db = mongo_client.get_database("bangkoo")
 product_collection = db.get_collection("products")
+
 
 def get_room_style_description(image_path):
     prompt = """
@@ -57,17 +69,30 @@ def get_room_style_description(image_path):
     ])
     return response.text.strip()
 
+
 def extract_keywords_from_query(query):
     return [w for w in re.findall(r'[가-힣]{2,}', query) if w not in ["추천해줘", "보여줘", "같은"]]
 
-def extract_category_from_query_from_products(query: str, products: list[str]) -> str:
-    keywords = extract_keywords_from_query(query)
+
+def guess_category_from_keywords(keywords, categories):
     for kw in reversed(keywords):
-        for p in products:
-            text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}"
-            if kw in text:
-                return kw
+        for cat in categories:
+            if kw in cat:
+                return cat
     return "가구"
+
+
+def filter_products_by_category(products, category: str):
+    category = category.strip().lower()
+    matched = []
+    for p in products:
+        cat = p.get("category", "").strip().lower()
+        if category in cat:
+            matched.append(p)
+    print(f"[DEBUG] 필터링된 카테고리: {category}, 실제 매칭된 개수: {len(matched)}", flush=True)
+    return matched
+
+
 
 def filter_by_query_keywords(products, query):
     keywords = extract_keywords_from_query(query)
@@ -79,13 +104,6 @@ def filter_by_query_keywords(products, query):
             filtered.append(p)
     return filtered
 
-def filter_products_by_category(products, category: str):
-    return [
-        p for p in products
-        if category in p.get("name", "")
-        or category in p.get("description", "")
-        or category in p.get("detail", "")
-    ]
 
 def rerank_ai_recommendations(
     room_style,
@@ -182,6 +200,7 @@ def rerank_ai_recommendations(
     print("[DEBUG] Gemini 응답:\n", response.text)
     return response.text.strip()
 
+
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
@@ -206,7 +225,8 @@ async def recommend_with_ai_agent(
             "price": 1,
             "link": 1,
             "imageUrl": 1,
-            "csv": 1
+            "csv": 1,
+            "category": 1
         }
     ).limit(1000))
 
@@ -221,24 +241,31 @@ async def recommend_with_ai_agent(
         except:
             continue
         filtered_products.append(p)
-    print(f"[DEBUG] 가격 필터 후: {len(filtered_products)}")
+    print("[DEBUG] 카테고리 분포 (가격 필터 후):", flush=True)
+    print(Counter([p.get("category", "없음") for p in filtered_products]), flush=True)
 
-    category = extract_category_from_query_from_products(query, filtered_products)
-    print(f"[DEBUG] 추출된 카테고리: {category}")
+    keywords = extract_keywords_from_query(query)
+
+    # 실존하는 카테고리 중 가장 잘 맞는 것 추정
+    all_categories = list(set(p.get("category", "") for p in filtered_products if p.get("category")))
+    category = guess_category_from_keywords(keywords, all_categories)
+    print(f"[DEBUG] 추론된 카테고리: {category}")
+
     category_filtered = filter_products_by_category(filtered_products, category)
     print(f"[DEBUG] 카테고리 필터 후: {len(category_filtered)}")
 
     keyword_filtered = filter_by_query_keywords(filtered_products, query)
     print(f"[DEBUG] 키워드 필터 후: {len(keyword_filtered)}")
 
-    if category_filtered:
+    # 후보 선택 로직 개선
+    if len(category_filtered) >= 5:
         candidates = category_filtered
-    elif keyword_filtered:
-        print("[WARN] 카테고리 후보 없음 → 키워드 필터 사용")
+    elif len(keyword_filtered) >= 5:
+        print("[WARN] 카테고리 제품 부족 → 키워드 필터 사용")
         candidates = keyword_filtered
     else:
-        print("[WARN] 후보 없음 → 전체 일부 사용")
-        candidates = filtered_products[:20]
+        print("[WARN] 후보가 너무 적음 → 전체 일부 사용")
+        candidates = filtered_products[:50]
 
     if not candidates:
         return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
@@ -246,7 +273,7 @@ async def recommend_with_ai_agent(
     result = rerank_ai_recommendations(
         room_style,
         query,
-        candidates[:20],
+        candidates[:50],  # ⬅ Gemini로 넘기는 후보 수 확대
         min_price=min_price,
         max_price=max_price,
         keyword=keyword,
