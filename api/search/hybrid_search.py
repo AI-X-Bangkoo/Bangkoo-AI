@@ -31,7 +31,7 @@ text_model = SentenceTransformer("intfloat/e5-base-v2", device=device)
 # MongoDB 연결
 MONGO_URI = os.getenv("MONGO_URI")
 
-print(f"현재 MONGO_URI: {MONGO_URI}")
+# print(f"현재 MONGO_URI: {MONGO_URI}")
 
 client = MongoClient(MONGO_URI)
 db = client["bangkoo"]
@@ -40,7 +40,7 @@ product_collection = db["products"]
 
 # 동의어 사전 로딩
 doc = db["synonyms"].find_one({"_id": "korean"})
-print("MongoDB로부터 받아온 문서:", doc)
+# print("MongoDB로부터 받아온 문서:", doc)
 
 if doc is None:
     raise ValueError("'_id': 'korean' 문서가 존재하지 않음")
@@ -48,7 +48,7 @@ if "dict" not in doc:
     raise ValueError("'dict' 필드가 존재하지 않음")
 
 synonyms = doc["dict"]
-print("동의어 사전 로딩 완료. 총 항목 수:", len(synonyms))
+# print("동의어 사전 로딩 완료. 총 항목 수:", len(synonyms))
 
 
 
