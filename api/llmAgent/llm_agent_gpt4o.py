@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from api.search.hybrid_search import hybrid_search
 from api.search.filters import apply_filters
 import os
+from utils.markdown_utils import extract_json_from_markdown
 
 """
 최초 작성자: 김동규
@@ -180,4 +181,12 @@ async def recommend_with_ai_agent(
         style=style
     )
 
-    return json.loads(result)
+    try:
+        parsed = json.loads(extract_json_from_markdown(result))
+    except json.JSONDecodeError as e:
+        print("JSON 파싱 실패:", e)
+        print("Gemini 응답:\n", result)
+        raise e
+
+    print(f"[DEBUG] 최종 추천 개수: {len(parsed)}")
+    return parsed[:3]
