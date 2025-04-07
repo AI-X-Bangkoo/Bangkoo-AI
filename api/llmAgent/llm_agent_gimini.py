@@ -4,27 +4,28 @@ import google.generativeai as genai
 from tempfile import NamedTemporaryFile
 from fastapi import UploadFile
 import os
+import re
 from dotenv import load_dotenv
-from api.search.hybrid_search import hybrid_search
+from pymongo import MongoClient
+from utils.markdown_utils import extract_json_from_markdown
 
-"""
-최초 작성자: 김동규
-최초 작성일: 2025-04-04
-
-Gemini 기반 AI 추천 모듈
-
-- 방 이미지를 분석하여 스타일 설명을 생성
-- 사용자 쿼리와 스타일 설명을 조합해 후보 제품 추천
-- 후보 제품들을 Gemini를 통해 재랭킹하여 최종 3개 추천
-"""
- 
 load_dotenv()
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-# 모델 지정
+# Gemini 모델 설정
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# 1. 방 스타일 설명 생성
+# MongoDB 연결
+mongo_client = MongoClient(
+    os.getenv("MONGO_URI"),
+    serverSelectionTimeoutMS=30000,
+    socketTimeoutMS=30000,
+    connectTimeoutMS=30000
+)
+
+db = mongo_client.get_database("bangkoo")
+product_collection = db.get_collection("products")
+
 def get_room_style_description(image_path):
     prompt = """
 아래 방 사진을 보고, 스타일 전문가처럼 객관적인 설명을 작성해 주세요.
@@ -56,8 +57,36 @@ def get_room_style_description(image_path):
     ])
     return response.text.strip()
 
+def extract_keywords_from_query(query):
+    return [w for w in re.findall(r'[가-힣]{2,}', query) if w not in ["추천해줘", "보여줘", "같은"]]
 
-# 2. 재랭킹 추천 생성
+def extract_category_from_query_from_products(query: str, products: list[str]) -> str:
+    keywords = extract_keywords_from_query(query)
+    for kw in reversed(keywords):
+        for p in products:
+            text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}"
+            if kw in text:
+                return kw
+    return "가구"
+
+def filter_by_query_keywords(products, query):
+    keywords = extract_keywords_from_query(query)
+    print(f"[DEBUG] 추출된 키워드: {keywords}")
+    filtered = []
+    for p in products:
+        searchable_text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}"
+        if any(k in searchable_text for k in keywords):
+            filtered.append(p)
+    return filtered
+
+def filter_products_by_category(products, category: str):
+    return [
+        p for p in products
+        if category in p.get("name", "")
+        or category in p.get("description", "")
+        or category in p.get("detail", "")
+    ]
+
 def rerank_ai_recommendations(
     room_style,
     query,
@@ -66,23 +95,22 @@ def rerank_ai_recommendations(
     min_price=None,
     max_price=None,
     keyword=None,
-    style=None
+    style=None,
+    category=None
 ):
-    # 1. 후보 제품 설명
     product_descriptions = "\n\n".join([
         f"""
-        이름: {p['이름']}
-        설명: {p['설명']}
-        상세설명: {p.get('상세설명', '정보 없음')}
-        할인가: {p.get('할인가', '정보 없음')}
-        정상가: {p.get('정상가', '정보 없음')}
-        링크: {p['링크']}
-        이미지: {p['이미지']}
+        이름: {p['name']}
+        설명: {p['description']}
+        상세설명: {p.get('detail', '정보 없음')}
+        할인가: {p.get('price', '정보 없음')}
+        정상가: {p.get('price', '정보 없음')}
+        링크: {p['link']}
+        이미지: {p['imageUrl']}
         """
         for p in candidate_products
     ])
 
-    # 2. 필터 조건 문자열 생성
     filter_info = ""
     if min_price is not None and max_price is not None:
         filter_info += f"- 가격대: {min_price:,} ~ {max_price:,}원\n"
@@ -90,8 +118,9 @@ def rerank_ai_recommendations(
         filter_info += f"- 키워드 포함: {keyword}\n"
     if style:
         filter_info += f"- 원하는 스타일: {style}\n"
+    if category:
+        filter_info += f"- 제품 종류 (카테고리): {category}\n"
 
-    # 3. 프롬프트 생성
     prompt = f"""
 당신은 인테리어 전문가입니다.
 
@@ -115,11 +144,21 @@ def rerank_ai_recommendations(
 위 결과는 사용자의 취향과 약간 다를 수 있습니다. 새 요청을 참고해 다시 3개의 제품을 추천해 주세요.
 """
 
+    if category:
+        prompt += f"""
+- 반드시 '{category}'에 해당하는 제품만 추천해 주세요.
+- '{category}'가 아닌 제품은 추천 이유에 '해당 카테고리가 아니므로 제외'라고 써 주세요.
+- 아래 제품 목록 외에는 절대 새로운 제품을 만들어내지 마세요.
+- 링크/이미지/이름 등을 임의로 작성하지 마세요. 목록에 있는 제품만 그대로 추천해 주세요.
+"""
+
     prompt += f"""
 
 [추천 후보 제품 목록]
-아래 제품들은 Semantic Search를 통해 선별된 후보입니다.
-이 중에서 방 스타일과 사용자 요청, 필터 조건에 가장 적합한 3개 제품을 골라 주세요.
+아래 제품들은 실제 데이터베이스에서 검색된 후보입니다.
+이 중에서 방 스타일과 사용자 요청, 필터 조건에 가장 적합한 3개 이상의 제품을 골라 주세요.
+- 가격대({min_price} ~ {max_price})를 벗어나는 제품은 추천하지 마세요.
+- 반드시 3개 이상의 제품을 JSON 배열로 반환하세요. 조건 미충족 시 "추천이유"에 이유를 써 주세요
 
 {product_descriptions}
 
@@ -140,14 +179,9 @@ def rerank_ai_recommendations(
 ]
 """
     response = model.generate_content(prompt)
+    print("[DEBUG] Gemini 응답:\n", response.text)
     return response.text.strip()
 
-
-
-def get_semantic_candidates(query: str, top_k=10):
-    return hybrid_search(query, top_k=top_k)
-
-# 3. FastAPI용 통합 추천 함수
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
@@ -156,37 +190,75 @@ async def recommend_with_ai_agent(
     keyword: str = None,
     style: str = None
 ):
-    # 1. 이미지 파일 임시 저장
     temp_file = NamedTemporaryFile(delete=False, suffix=".jpg")
     temp_file.write(await image_file.read())
     temp_file.close()
 
-    # 2. 스타일 설명 생성
     room_style = get_room_style_description(temp_file.name)
 
-    # 3. 쿼리 + 스타일 기반 하이브리드 검색
-    semantic_query = f"{room_style} {query}"
-    candidates = get_semantic_candidates(semantic_query, top_k=50)
+    all_products = list(product_collection.find(
+        {},
+        {
+            "_id": 0,
+            "name": 1,
+            "description": 1,
+            "detail": 1,
+            "price": 1,
+            "link": 1,
+            "imageUrl": 1,
+            "csv": 1
+        }
+    ).limit(1000))
 
-    # 4. 필터 적용
-    price_range = (min_price, max_price) if min_price is not None and max_price is not None else None
-    filtered_candidates = apply_filters(candidates, price_range, keyword, style)
+    print(f"[DEBUG] 전체 제품 수: {len(all_products)}")
 
-    # 5. 후보가 부족하면 fallback
-    if len(filtered_candidates) < 3:
-        filtered_candidates = candidates[:10]
+    filtered_products = []
+    for p in all_products:
+        try:
+            price = int(str(p.get("price", "0")).replace(",", ""))
+            if (min_price is not None and price < min_price) or (max_price is not None and price > max_price):
+                continue
+        except:
+            continue
+        filtered_products.append(p)
+    print(f"[DEBUG] 가격 필터 후: {len(filtered_products)}")
 
-    # 6. Gemini 기반 재랭킹 (최대 10개 중 3개 추천)
+    category = extract_category_from_query_from_products(query, filtered_products)
+    print(f"[DEBUG] 추출된 카테고리: {category}")
+    category_filtered = filter_products_by_category(filtered_products, category)
+    print(f"[DEBUG] 카테고리 필터 후: {len(category_filtered)}")
+
+    keyword_filtered = filter_by_query_keywords(filtered_products, query)
+    print(f"[DEBUG] 키워드 필터 후: {len(keyword_filtered)}")
+
+    if category_filtered:
+        candidates = category_filtered
+    elif keyword_filtered:
+        print("[WARN] 카테고리 후보 없음 → 키워드 필터 사용")
+        candidates = keyword_filtered
+    else:
+        print("[WARN] 후보 없음 → 전체 일부 사용")
+        candidates = filtered_products[:20]
+
+    if not candidates:
+        return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
+
     result = rerank_ai_recommendations(
-    room_style,
-    query,
-    filtered_candidates[:10],
-    min_price=min_price,
-    max_price=max_price,
-    keyword=keyword,
-    style=style
-)
+        room_style,
+        query,
+        candidates[:20],
+        min_price=min_price,
+        max_price=max_price,
+        keyword=keyword,
+        style=style,
+        category=category
+    )
+    try:
+        parsed = json.loads(extract_json_from_markdown(result))
+    except json.JSONDecodeError as e:
+        print("JSON 파싱 실패:", e)
+        print("Gemini 응답:\n", result)
+        raise e
 
-
-    return json.loads(result)
-
+    print(f"[DEBUG] 최종 추천 개수: {len(parsed)}")
+    return parsed[:3]
