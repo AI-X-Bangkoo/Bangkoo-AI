@@ -35,7 +35,7 @@ def apply_filters(products, price_range=None, keyword=None, style=None):
                 continue
 
         # 스타일 필터
-        if style and style not in p.get("상세설명", ""):
+        if style and style not in (p.get("상세설명") or ""):
             continue
 
         filtered.append(p)
