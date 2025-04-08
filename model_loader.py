@@ -15,7 +15,7 @@ class ModelManager:
         self.clip_model = None
         self.clip_processor = None
         self.text_model = None
-        self.ready = False  # 모델 준비 여부 표시
+        self.ready = False
 
     def load(self):
         print("[1] Loading CLIP model...")

@@ -11,6 +11,7 @@ from PIL import UnidentifiedImageError
 from fastapi import HTTPException
 import pillow_avif
 import time
+from api.search.hybrid_search import infer_category
 
 # 캐시 리셋 DB에 제품 추가할 수 있으니
 # last_cache_time = None
@@ -30,7 +31,7 @@ cached_image_embeddings = None
 최초 작성자: 김동규
 최초 작성일: 2025-04-07
 
-이미지 기반 검색 모듈 (안정화 버전)
+이미지 기반 검색 모듈
 - 모델이 로드되지 않았을 경우 예외 처리
 - 모델은 함수 내에서 동적으로 접근
 """
