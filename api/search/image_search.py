@@ -94,7 +94,10 @@ def image_search(contents: bytes, top_k=10):
         print("[5-3-1.5] DB에서 product 목록 조회 시작")
         start = time.time()
         MONGO_URI = os.getenv("MONGO_URI")
+        
+        # 한 번만 호출 하도록
         client = MongoClient(MONGO_URI)
+        
         db = client["bangkoo"]
         cached_products = []
         print("[5-3-1.5.1] 제품 하나씩 순회 시작")
@@ -109,14 +112,15 @@ def image_search(contents: bytes, top_k=10):
             "imageEmbedding": 1
         })
 
-        for idx, p in enumerate(cursor):
-            if idx < 5:
-                print(f"  - 제품 {idx+1}: {p.get('name', '이름 없음')} (ID: {p.get('_id')})")
-            elif idx == 5:
-                print("  ... 생략 중 ...")
-            cached_products.append(p)
+        cached_products = list(cursor)
+        # for idx, p in enumerate(cursor):
+        #     if idx < 5:
+        #         print(f"  - 제품 {idx+1}: {p.get('name', '이름 없음')} (ID: {p.get('_id')})")
+        #     elif idx == 5:
+        #         print("  ... 생략 중 ...")
+        #     cached_products.append(p)
 
-        print(f"[5-3-1.5.2] 총 {len(cached_products)}개 제품 수집 완료")
+        # print(f"[5-3-1.5.2] 총 {len(cached_products)}개 제품 수집 완료")
 
         end = time.time()
         print(f"DB 조회 완료: {len(cached_products)}개, 소요 시간: {end - start:.2f}초")
