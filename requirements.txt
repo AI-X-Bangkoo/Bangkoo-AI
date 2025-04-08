@@ -6,10 +6,12 @@ sentence-transformers
 scikit-learn
 numpy
 google-generativeai
+google-genai
 python-dotenv
 pymongo
 openai
 timm
 einops
+Pillow
 python-multipart
 "pymongo[srv]"
