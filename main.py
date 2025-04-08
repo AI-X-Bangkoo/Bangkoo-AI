@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from api.llmAgent.router import router as recommend_router
 from api.search.router import router as search_router
+from api.placement.router import router as placement_router
 from model_loader import model_manager
 from api.llmAgent.router import router as recommend_or_search_router
 import threading
@@ -25,6 +26,7 @@ async def startup_event():
 app.include_router(recommend_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(recommend_or_search_router, prefix="/api")
+app.include_router(placement_router, prefix="/api")
 
 @app.get("/")
 def read_root():
