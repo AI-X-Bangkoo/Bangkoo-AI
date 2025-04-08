@@ -33,7 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 collection = db["products"]
 
 
-with open(BASE_DIR / "json" / "clip_metadata_v4.json", encoding="utf-8") as f:
+with open(BASE_DIR / "json" / "clip_metadata_v5.json", encoding="utf-8") as f:
     metadata = json.load(f)
 
 with open(BASE_DIR / "json" / "ko_synonyms.json", encoding="utf-8") as f:

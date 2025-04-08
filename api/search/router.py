@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Form, File, UploadFile, HTTPException
-from api.search.hybrid_search import hybrid_search
-from api.search.filters import apply_filters
+from fastapi import APIRouter, UploadFile, Form, File, HTTPException, Request
+from starlette.datastructures import UploadFile as StarletteUploadFile
+import requests, tempfile, io
+from typing import Optional
+from api.llmAgent.llm_agent_gimini import recommend_with_ai_agent
 from api.search.image_search import image_search
-import base64
-import re
-import requests
-
+from api.search.hybrid_search import hybrid_search
+from utils.extract_direct_image_url import extract_direct_image_url
 
 """
 최초 작성자: 김동규
@@ -17,68 +17,74 @@ import requests
 - 사용자 쿼리를 기반으로 AI 검색 수행
 """
 
-
 router = APIRouter()
 
-def extract_base64_image(data_uri):
-    match = re.match(r"data:image/[^;]+;base64,(.+)", data_uri)
-    if not match:
-        raise HTTPException(status_code=400, detail="Base64 형식이 잘못되었습니다.")
-    return base64.b64decode(match.group(1))
-
 @router.post("/search")
-def search(
-    query: str = Form(...),
-    min_price: int = Form(None),
-    max_price: int = Form(None),
-    keyword: str = Form(None),
-    style: str = Form(None)
+async def recommend_or_search(
+    request: Request,
+    query: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    image_url: Optional[str] = Form(None),
+    min_price: Optional[int] = Form(None),
+    max_price: Optional[int] = Form(None),
+    keyword: Optional[str] = Form(None),
+    style: Optional[str] = Form(None)
 ):
+    print("[DEBUG] /search 진입")
+
     try:
-        results = hybrid_search(query, top_k=10)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        form_data = await request.form()
+        print("전체 요청 form 데이터:", dict(form_data))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"서버 오류: {e}")
+        print("form_data 추출 중 오류 발생:", e)
 
-    price_range = (min_price, max_price) if min_price and max_price else None
-    filtered = apply_filters(results, price_range, keyword, style)
+    query_lower = (query or "").lower()
+    print("query:", query)
+    print("image:", image)
+    print("image_url:", image_url)
 
-    return filtered
+    contents = None
 
-@router.post("/search/image")
-async def image_based_search(
-    file: UploadFile = File(None),
-    url: str = Form(None),
-    min_price: int = Form(None),
-    max_price: int = Form(None),
-    keyword: str = Form(None),
-    style: str = Form(None)
-):
-    print("[1] 요청 수신됨")
-    if file is not None:
-        print("[2] file 방식 수신")
-        contents = await file.read()
-    elif url is not None:
-        print(f"[2] url 방식 수신: {url[:50]}...")
-        if url.startswith("data:image/"):
-            print("[3] data URI base64 추출 중")
-            contents = extract_base64_image(url)
-        else:
-            print("[3] 외부 이미지 요청 중")
-            response = requests.get(url)
-            print(f"[4] 응답 코드: {response.status_code}")
+    # 1. 이미지 URL만 있는 경우 → 다운로드
+    if image is None and image_url:
+        true_url = extract_direct_image_url(image_url)
+        print(f"[DEBUG] 이미지 URL 변환: {true_url}")
+
+        try:
+            response = requests.get(true_url)
             if response.status_code != 200:
-                raise HTTPException(status_code=400, detail="이미지 URL을 불러올 수 없습니다.")
+                raise HTTPException(status_code=400, detail="이미지 URL 접근 실패")
             contents = response.content
-    else:
-        print("[2] file, url 모두 없음")
-        raise HTTPException(status_code=400, detail="file 또는 url 중 하나가 필요합니다.")
+        except Exception as e:
+            print(f"[ERROR] 이미지 다운로드 실패: {e}")
+            raise HTTPException(status_code=400, detail="이미지 다운로드 실패")
 
-    print("[5] image_search 호출 전")
-    results = image_search(contents, top_k=10)
-    print("[6] image_search 결과 수신 완료")
-    price_range = (min_price, max_price) if min_price and max_price else None
-    filtered = apply_filters(results, price_range, keyword, style)
-    print("[7] 필터링 완료")
-    return filtered
+    # 2. 업로드된 이미지 파일인 경우
+    if image:
+        contents = await image.read()
+
+    # 이미지만 존재 → 이미지 유사도 검색
+    if contents is not None and (query is None or query.strip() == ""):
+        print("[DEBUG] 이미지 단독 검색으로 분기")
+        return image_search(contents)
+
+    # 이미지 + 쿼리 (추천 요청) → Gemini
+    if contents is not None and ("추천" in query_lower or "어울리" in query_lower):
+        print("[DEBUG] Gemini 추천으로 분기")
+        image_upload_file = image or StarletteUploadFile(filename="temp.jpg", file=io.BytesIO(contents))
+        return await recommend_with_ai_agent(
+            image_upload_file,
+            query,
+            min_price=min_price,
+            max_price=max_price,
+            keyword=keyword,
+            style=style
+        )
+
+    # 텍스트 기반 하이브리드 검색
+    if query:
+        print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
+        return hybrid_search(query)
+
+    raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
+
