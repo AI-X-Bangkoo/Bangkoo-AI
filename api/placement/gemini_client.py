@@ -1,12 +1,16 @@
+import os
 from google import genai
 from google.genai import types
 from PIL import Image
 from io import BytesIO
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class GeminiClient:
     def __init__(self):
         self.client = genai.Client(
-            api_key="AIzaSyCA3h_wDN3DEDixRPKTpSteOSLGbFlYri4"  # 보안상 나중에 .env로
+            api_key=os.getenv("AI_API_KEY")
         )
         self.model = "gemini-2.0-flash-exp-image-generation"
 
