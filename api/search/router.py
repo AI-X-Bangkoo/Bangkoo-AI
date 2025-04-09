@@ -6,6 +6,8 @@ from api.llmAgent.llm_agent_gimini import recommend_with_ai_agent
 from api.search.image_search import image_search
 from api.search.hybrid_search import hybrid_search
 from utils.extract_direct_image_url import extract_direct_image_url
+from utils.gemini_utils import should_use_image_for_recommendation
+
 
 """
 최초 작성자: 김동규
@@ -69,17 +71,23 @@ async def recommend_or_search(
         return image_search(contents)
 
     # 이미지 + 쿼리 (추천 요청) → Gemini
-    if contents is not None and ("추천" in query_lower or "어울리" in query_lower):
-        print("[DEBUG] Gemini 추천으로 분기")
-        image_upload_file = image or StarletteUploadFile(filename="temp.jpg", file=io.BytesIO(contents))
-        return await recommend_with_ai_agent(
-            image_upload_file,
-            query,
-            min_price=min_price,
-            max_price=max_price,
-            keyword=keyword,
-            style=style
-        )
+    if contents is not None and query:
+        print("[DEBUG] 이미지 + 쿼리 기반 분기 시작")
+
+        if should_use_image_for_recommendation(query):
+            print("[DEBUG] Gemini 판단 결과: 이미지 기반 추천 필요 → Gemini 추천으로 분기")
+            image_upload_file = image or StarletteUploadFile(filename="temp.jpg", file=io.BytesIO(contents))
+            return await recommend_with_ai_agent(
+                image_upload_file,
+                query,
+                min_price=min_price,
+                max_price=max_price,
+                keyword=keyword,
+                style=style
+            )
+        else:
+            print("[DEBUG] Gemini 판단 결과: 이미지 사용 안함 → 텍스트 기반 하이브리드 검색")
+
 
     # 텍스트 기반 하이브리드 검색
     if query:

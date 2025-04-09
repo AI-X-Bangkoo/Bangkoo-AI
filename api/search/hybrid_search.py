@@ -6,6 +6,12 @@ from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from model_loader import model_manager
 import torch
+import sys
+import os
+
+# Add the project root to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from mongo_manager import mongo_manager
 
 load_dotenv()
 
@@ -67,11 +73,12 @@ def hybrid_search(query, top_k=10):  # top_k=10으로 상위 10개만 나오도�
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
 
-    MONGO_URI = os.getenv("MONGO_URI")
-    client = MongoClient(MONGO_URI)
-    db = client["bangkoo"]
-    product_collection = db["products"]
+    if not mongo_manager.ready:
+        mongo_manager.connect()
     print("[DEBUG] Mongo 연결 성공")
+
+    db = mongo_manager.db
+    product_collection = mongo_manager.products
 
     synonyms_doc = db["synonyms"].find_one({"_id": "korean"})
     if synonyms_doc is None or "dict" not in synonyms_doc:
