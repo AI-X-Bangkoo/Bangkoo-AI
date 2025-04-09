@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModel, AutoProcessor
+from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from sentence_transformers import SentenceTransformer
 
 """
@@ -12,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 class ModelManager:
     def __init__(self):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print("[DEBUG] self.device: ", self.device)
         self.clip_model = None
         self.clip_processor = None
         self.text_model = None
@@ -30,7 +31,9 @@ class ModelManager:
 
         print("[6] Loading SentenceTransformer...")
         self.text_model = SentenceTransformer("intfloat/e5-base-v2", device=self.device)
-        print("[7] All models loaded")
+        print("[7] Loading AutoTokenizer...")
+        self.text_tokenizer = AutoTokenizer.from_pretrained("intfloat/e5-base-v2")  
+        print("[8] All models loaded")
         
         self.ready = True
         
