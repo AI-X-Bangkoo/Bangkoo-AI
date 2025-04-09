@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 from utils.markdown_utils import extract_json_from_markdown
 from collections import Counter
+import sys
+
+# Add the project root to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from mongo_manager import mongo_manager
 
 """
 최초 작성자: 김동규
@@ -27,15 +32,11 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("gemini-1.5-flash")
 
 # MongoDB 연결
-mongo_client = MongoClient(
-    os.getenv("MONGO_URI"),
-    serverSelectionTimeoutMS=30000,
-    socketTimeoutMS=30000,
-    connectTimeoutMS=30000
-)
+if not mongo_manager.ready:
+    mongo_manager.connect()
 
-db = mongo_client.get_database("bangkoo")
-product_collection = db.get_collection("products")
+db = mongo_manager.db
+product_collection = mongo_manager.products
 
 
 def get_room_style_description(image_path):
