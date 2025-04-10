@@ -14,9 +14,9 @@ class MongoDBManager:
         MONGO_URI = os.getenv("MONGO_URI")
         self.client = MongoClient(
             MONGO_URI,
-            socketTimeoutMS=100000,
-            connectTimeoutMS=100000,
-            serverSelectionTimeoutMS=100000,
+            socketTimeoutMS=300000,
+            connectTimeoutMS=300000,
+            serverSelectionTimeoutMS=300000,
         )
         self.db = self.client["bangkoo"]
         self.products = self.db["products"]
