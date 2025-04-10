@@ -7,6 +7,8 @@ from api.search.image_search import image_search
 from api.search.hybrid_search import hybrid_search
 from utils.extract_direct_image_url import extract_direct_image_url
 from utils.gemini_utils import should_use_image_for_recommendation
+import base64
+import re
 
 
 """
@@ -47,16 +49,21 @@ async def recommend_or_search(
 
     contents = None
 
-    # 1. 이미지 URL만 있는 경우 → 다운로드
+    # 1. 이미지 URL만 있는 경우 → 다운로드 또는 base64 처리
     if image is None and image_url:
         true_url = extract_direct_image_url(image_url)
         print(f"[DEBUG] 이미지 URL 변환: {true_url}")
 
         try:
-            response = requests.get(true_url)
-            if response.status_code != 200:
-                raise HTTPException(status_code=400, detail="이미지 URL 접근 실패")
-            contents = response.content
+            if true_url.startswith("data:image"):
+                print("[DEBUG] base64 이미지 디코딩 중")
+                base64_data = re.sub("^data:image/.+;base64,", "", true_url)
+                contents = base64.b64decode(base64_data)
+            else:
+                response = requests.get(true_url)
+                if response.status_code != 200:
+                    raise HTTPException(status_code=400, detail="이미지 URL 접근 실패")
+                contents = response.content
         except Exception as e:
             print(f"[ERROR] 이미지 다운로드 실패: {e}")
             raise HTTPException(status_code=400, detail="이미지 다운로드 실패")
