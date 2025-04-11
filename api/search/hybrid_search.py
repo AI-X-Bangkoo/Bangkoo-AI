@@ -52,12 +52,21 @@ def get_clip_text_embedding(text):
         features = features / features.norm(dim=-1, keepdim=True)
     return features.cpu().numpy()
 
+def compute_keyword_bonus(product, keywords):
+    """
+    제품의 name, description, detail 필드에서 쿼리 키워드가 얼마나 많이 매칭되는지를 평가하려고 생성
+    반환 값은 0과 1 사이의 값으로, 1에 가까울수록 모든 키워드가 포함되어 있다는 의미
+    """
+    text = f"{product.get('name','')} {product.get('description','')} {product.get('detail','')}"
+    matched = sum(1 for k in keywords if k in text)
+    return matched / len(keywords) if keywords else 0
+
 def hybrid_search(query, top_k=10):
     print("[DEBUG] hybrid_search 진입")
 
+    # 모델과 MongoDB 연결 상태 확인
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
-
     if not mongo_manager.ready:
         mongo_manager.connect()
     print("[DEBUG] Mongo 연결 성공")
@@ -65,11 +74,22 @@ def hybrid_search(query, top_k=10):
     db = mongo_manager.db
     product_collection = mongo_manager.products
 
-    # 동의어 로드
+    # 동의어 사전 로드
     synonyms_doc = db["synonyms"].find_one({"_id": "korean"})
-    if synonyms_doc is None or "dict" not in synonyms_doc:
+    if not synonyms_doc or "dict" not in synonyms_doc:
         raise ValueError("동의어 사전을 찾을 수 없습니다.")
     synonyms = synonyms_doc["dict"]
+
+    # MongoDB 쿼리 조건 빌드:
+    # 1. 카테고리 필터링
+    query_filter = {}
+    inferred = infer_category(query, db)
+    print(f"[DEBUG] inferred 카테고리: {inferred}")
+    if inferred:
+        query_filter["category"] = inferred
+
+    # 2. 텍스트 인덱스를 활용한 키워드 필터링
+    query_filter["$text"] = {"$search": query}
 
     # Projection 필드 최적화
     projection = {
@@ -78,47 +98,53 @@ def hybrid_search(query, top_k=10):
         "link": 1, "imageUrl": 1, "price": 1,
         "category": 1, "csv": 1
     }
-    products = list(product_collection.find({}, projection))
 
-    # 카테고리 필터링
-    inferred = infer_category(query, db)
-    print(f"[DEBUG] inferred 카테고리: {inferred}")
-    if inferred:
-        products = [p for p in products if inferred == (p.get("category") or "").strip()]
-        print(f"[DEBUG] 카테고리 '{inferred}' 필터링 후 개수: {len(products)}")
+    # DB에서 조건에 맞는 제품 조회
+    products = list(product_collection.find(query_filter, projection))
+    print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
+    if not products:
+        return []
 
-    # 키워드 필터링
-    keywords = query.split()
-    keyword_filtered = [p for p in products if all(k in f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}" for k in keywords)]
-    if len(keyword_filtered) >= 5:
-        products = keyword_filtered
-        print(f"[DEBUG] 키워드 필터 적용됨: {len(products)}개")
-
-    items = products
+    # 임베딩 계산을 위한 배열 생성
     image_embeddings = np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
     text_embeddings = np.array([p["textEmbedding"] for p in products], dtype=np.float32)
 
-    queries = expand_query(query, synonyms)
-    queries = queries[:3]
+    # 동의어 확장: 쿼리 확장 후 상위 3개 후보 사용
+    queries = expand_query(query, synonyms)[:3]
     print(f"[DEBUG] 동의어 확장 결과: {queries}")
 
-    # 병렬 유사도 계산
-    def compute_score(q):
+    # 임베딩 기반 유사도 계산 (Base Score)
+    def compute_base_score(q):
         e5_embed = get_text_embedding(q)
         clip_embed = get_clip_text_embedding(q)
         sim_text = cosine_similarity(e5_embed, text_embeddings)[0]
         sim_image = cosine_similarity(clip_embed, image_embeddings)[0]
         return 0.6 * sim_text + 0.4 * sim_image
 
+    from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor() as executor:
-        sim_results = list(executor.map(compute_score, queries))
+        base_scores_list = list(executor.map(compute_base_score, queries))
+    base_score = max(base_scores_list, key=lambda s: max(s))  # 여기서 선택 기준은 최댓값임
 
-    best_sim = max(sim_results, key=lambda s: max(s))
-    best_indices = np.argsort(best_sim)[::-1]
+    # 키워드 보너스 계산을 위해 쿼리를 단어 단위로 분리
+    keywords = query.split()
+
+    # 각 제품에 대해 임베딩 기반 점수와 키워드 보너스를 계산하여 최종 점수 산출
+    final_scores = []
+    for idx, product in enumerate(products):
+        bonus = compute_keyword_bonus(product, keywords)  # 이거 0~1 사이의 값을 반환
+        # BONUS_SCALE은 보너스의 반영 강도를 조절 (0.1은 최대 0.1만큼 점수를 추가함)
+        BONUS_SCALE = 0.1
+        final_score = base_score[idx] + BONUS_SCALE * bonus
+        final_scores.append(final_score)
+    final_scores = np.array(final_scores)
+
+    # 최종 점수에 따라 제품 재정렬
+    best_indices = np.argsort(final_scores)[::-1]
 
     results = []
     for i in best_indices[:top_k]:
-        item = items[i]
+        item = products[i]
         results.append({
             "이름": item["name"],
             "설명": item["description"],
@@ -129,8 +155,10 @@ def hybrid_search(query, top_k=10):
             "정상가": item.get("price", "정보 없음"),
             "카테고리": item.get("category"),
             "csv": item.get("csv", ""),
-            "유사도": float(best_sim[i]),
-            "추천이유": f"쿼리 '{query}' 와 유사도 {float(best_sim[i]):.3f}"
+            "유사도": float(final_scores[i]),
+            "추천이유": f"쿼리 '{query}' 와 결합 유사도 {float(final_scores[i]):.3f}"
         })
 
     return results
+
+
