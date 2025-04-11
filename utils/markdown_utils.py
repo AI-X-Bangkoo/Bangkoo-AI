@@ -1,5 +1,15 @@
 import re
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-05
+
+- Gemini 응답으로부터 JSON 형태의 추천 결과만 추출
+- ```json ... ``` 형식 또는 순수 JSON 배열 형태만 파싱 대상
+- fallback 처리로 파싱 실패 시 전체 텍스트 반환
+- JSON 구조가 깨졌을 경우 대응을 위해 사용
+"""
+
 def extract_json_from_markdown(text: str) -> str:
     """
     Gemini 응답에서 ```json ... ``` 또는 순수 JSON 배열만 추출합니다.

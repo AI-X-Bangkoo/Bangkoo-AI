@@ -6,6 +6,18 @@ from mongo_manager import mongo_manager
 import numpy as np
 import torch
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-09
+
+- 이미지 한 장을 Gemini에 입력하여 설명과 카테고리를 추출
+- 응답에서 '설명'과 '카테고리'를 파싱하여 텍스트 임베딩 생성
+- category_keywords에 정의된 카테고리 목록 중 하나만 선택되도록 유도
+- 임베딩은 e5-base-v2 모델을 사용하여 정규화 후 float32로 반환
+- 이미지 임베딩은 CLIP 기반 jina-clip-v2 모델을 사용하여 추출
+"""
+
+
 def get_image_caption_and_embedding(image: Image.Image):
     model = GenerativeModel("gemini-1.5-flash")
 
@@ -71,3 +83,21 @@ def get_image_embedding(image: Image.Image):
         features = clip_model.get_image_features(**inputs)
         features = features / features.norm(dim=-1, keepdim=True)
     return features.cpu().numpy()
+
+def extract_color_from_caption(caption: str) -> str:
+    """
+    이미지 캡션에서 색상 정보를 추출하여 color_keywords에 정의된 색상 중 가장 일치하는 색상 반환
+    """
+    if not mongo_manager.ready:
+        mongo_manager.connect()
+    db = mongo_manager.db
+    color_doc = db["color_keywords"].find_one({"_id": "korean"})
+    if not color_doc or "dict" not in color_doc:
+        return None
+
+    color_dict = color_doc["dict"]
+    caption_lower = caption.lower()
+    for color, keywords in color_dict.items():
+        if any(kw.lower() in caption_lower for kw in keywords):
+            return color
+    return None
