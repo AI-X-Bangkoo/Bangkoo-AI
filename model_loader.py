@@ -11,6 +11,8 @@ from sentence_transformers import SentenceTransformer
 
 class ModelManager:
     def __init__(self):
+        print(torch.__version__)
+        print(torch.cuda.is_available())
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print("[DEBUG] self.device: ", self.device)
         self.clip_model = None

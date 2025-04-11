@@ -4,6 +4,7 @@ from google.generativeai import GenerativeModel
 from model_loader import model_manager
 from mongo_manager import mongo_manager
 import numpy as np
+import torch
 
 def get_image_caption_and_embedding(image: Image.Image):
     model = GenerativeModel("gemini-1.5-flash")
@@ -56,3 +57,17 @@ def get_image_caption_and_embedding(image: Image.Image):
     embedding = e5_model.encode([f"query: {description}"], normalize_embeddings=True)
 
     return description, embedding.astype(np.float32), category
+
+def get_image_embedding(image: Image.Image):
+    if not model_manager.ready:
+        raise RuntimeError("모델이 아직 로드되지 않았습니다.")
+
+    clip_model = model_manager.clip_model
+    clip_processor = model_manager.clip_processor
+    device = model_manager.device
+
+    inputs = clip_processor(images=image, return_tensors="pt").to(device)
+    with torch.no_grad():
+        features = clip_model.get_image_features(**inputs)
+        features = features / features.norm(dim=-1, keepdim=True)
+    return features.cpu().numpy()
