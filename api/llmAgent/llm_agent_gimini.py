@@ -26,7 +26,7 @@ from utils.keyword_module import (
 최초 작성자: 김동규
 최초 작성일: 2025-04-04
 
-Gemini 기반 AI 추천 모듈 (최적화 버전)
+Gemini 기반 AI 추천 모듈
   - Gemini 호출을 비동기로 처리하며, 결과는 캐싱
   - 쿼리 키워드 추출, 카테고리 추론 및 필터링은 별도 모듈(keyword_module.py)에서 처리
   - 재랭킹 단계에서 프롬프트 길이를 줄여 처리 시간을 단축
@@ -34,11 +34,9 @@ Gemini 기반 AI 추천 모듈 (최적화 버전)
 
 load_dotenv()
 
-# Gemini 모델 설정 (프롬프트 간소화 적용)
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# MongoDB 연결
 if not mongo_manager.ready:
     mongo_manager.connect()
 
@@ -110,7 +108,7 @@ async def rerank_ai_recommendations_async(
     style=None,
     category=None
 ) -> str:
-    # 각 후보 제품을 간략히 요약: 이름, 가격, 링크만 포함
+    # 각 후보 제품을 간략히 요약: 이름, 가격, 링크, 상세설명, 이미지 포함
     product_summary = "\n".join([
         f"이름: {p['name']}, 가격: {p.get('price', '정보 없음')}, 링크: {p['link']}, 상세설명: {p['detail']}, 이미지: {p['imageUrl']}"
         for p in candidate_products
@@ -197,10 +195,10 @@ async def recommend_with_ai_agent(
     temp_file.close()
     print(f"[DEBUG] 임시 이미지 저장 완료: {temp_file.name}")
 
-    # 비동기로 방 스타일 설명 생성 (캐싱 활용)
+    # 비동기로 방 스타일 설명 생성 (여기서 캐싱 사용함)
     room_style = await get_room_style_description_async(temp_file.name)
 
-    # DB 후보 제품 조회: 최대 500개로 제한
+    # DB 후보 제품 조회: 최대 1000개로 제한 -> 500개 테스트도 해봐야 할 듯? (속토 측면을 위해)
     candidate_limit = 1000
     db_query_start = time.time()
     all_products = list(product_collection.find(
@@ -231,7 +229,7 @@ async def recommend_with_ai_agent(
         filtered_products.append(p)
     print("[DEBUG] 가격 필터 후 카테고리 분포:", Counter([p.get("category", "없음") for p in filtered_products]))
 
-    # 키워드 추출 및 카테고리 추론 (키워드 모듈 활용)
+    # 키워드 추출 및 카테고리 추론 (키워드 모듈에서 불러옴)
     extracted_keywords = extract_keywords_from_query(query)
     all_categories = list(set(p.get("category", "") for p in filtered_products if p.get("category")))
     category = guess_category_from_keywords(extracted_keywords, all_categories)
