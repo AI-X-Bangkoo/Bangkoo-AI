@@ -17,6 +17,11 @@ PROMPTS = {
         "Make the scene look natural and consistent after removal. "
         "Do not change anything else."
     ),
+    "move": (
+        "Make the red-outlined object match the wall and floor perspective. "
+        "Do not move it — just adjust its angle to fit the room’s depth. "
+        "Leave everything else unchanged."
+    ),
     # "move": ...  # 필요 시 추가 가능
 }
 
@@ -39,6 +44,8 @@ async def process_placement(mode: str, background_file, reference_file=None):
     elif mode == "remove":
         result_img = client.generate_image(PROMPTS["remove"], bg_img)
 
+    elif mode == "move":
+        result_img = client.generate_image(PROMPTS["move"], bg_img)
     else:
         return {"error": "Invalid mode."}
 
