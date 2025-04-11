@@ -1,6 +1,7 @@
 from fastapi import APIRouter, UploadFile, Form, File, HTTPException
 from api.llmAgent.llm_agent_gimini import recommend_with_ai_agent
 from api.search.image_search import image_search 
+from api.search.hybrid_search import hybrid_search
 from typing import Optional
 
 """
@@ -34,14 +35,6 @@ async def recommend(
         style=style
     )
     return result
-
-from fastapi import APIRouter, UploadFile, Form, File, HTTPException
-from typing import Optional
-from api.llmAgent.llm_agent_gimini import recommend_with_ai_agent
-from api.search.image_search import image_search
-from api.search.hybrid_search import hybrid_search
-
-router = APIRouter()
 
 @router.post("/recommend-or-search")
 async def recommend_or_search(
