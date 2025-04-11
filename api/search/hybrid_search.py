@@ -10,61 +10,32 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-02
+
+- 텍스트 기반 하이브리드 검색 기능 구현
+- 쿼리 내 키워드 기반으로 카테고리 및 텍스트 인덱스 필터 적용
+- imageEmbedding(1024), textEmbedding(768) 기반 유사도 계산
+- cosine similarity를 사용한 0.6:0.4 가중 결합
+- 동의어 확장 쿼리와 ThreadPoolExecutor 기반 병렬 유사도 계산
+- 키워드 매칭률 기반 보너스 점수(BONUS_SCALE) 추가 반영
+"""
+
+from utils.query_utils import (
+    infer_category,
+    expand_query,
+    get_text_embedding,
+    get_clip_text_embedding,
+    compute_keyword_bonus
+)
+
 load_dotenv()
-
-def infer_category(query: str, db):
-    category_keywords_doc = db["category_keywords"].find_one({"_id": "korean"})
-    if not category_keywords_doc:
-        return None
-
-    category_keywords = category_keywords_doc["dict"]
-    for category, keywords in category_keywords.items():
-        for keyword in keywords:
-            if keyword in query:
-                return category
-    return None
-
-def expand_query(query, synonyms):
-    words = query.split()
-    expanded = []
-    for word in words:
-        if word in synonyms:
-            expanded.append([word] + synonyms[word])
-        else:
-            expanded.append([word])
-    from itertools import product
-    candidates = [' '.join(combo) for combo in product(*expanded)]
-    return list(set([query] + candidates))
-
-def get_text_embedding(text):
-    text_model = model_manager.text_model
-    return text_model.encode([f"query: {text}"], normalize_embeddings=True)
-
-def get_clip_text_embedding(text):
-    clip_model = model_manager.clip_model
-    clip_processor = model_manager.clip_processor
-    device = model_manager.device
-
-    inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-    with torch.no_grad():
-        features = clip_model.get_text_features(**inputs)
-        features = features / features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy()
-
-def compute_keyword_bonus(product, keywords):
-    """
-    제품의 name, description, detail 필드에서 쿼리 키워드가 얼마나 많이 매칭되는지를 평가하려고 생성
-    반환 값은 0과 1 사이의 값으로, 1에 가까울수록 모든 키워드가 포함되어 있다는 의미
-    """
-    text = f"{product.get('name','')} {product.get('description','')} {product.get('detail','')}"
-    matched = sum(1 for k in keywords if k in text)
-    return matched / len(keywords) if keywords else 0
 
 def hybrid_search(query, top_k=10):
     print("[DEBUG] hybrid_search 진입")
 
-    # 모델과 MongoDB 연결 상태 확인
+    # --- 모델과 MongoDB 연결 상태 확인 ---
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
     if not mongo_manager.ready:
@@ -74,13 +45,13 @@ def hybrid_search(query, top_k=10):
     db = mongo_manager.db
     product_collection = mongo_manager.products
 
-    # 동의어 사전 로드
+    # --- 동의어 사전 로드 ---
     synonyms_doc = db["synonyms"].find_one({"_id": "korean"})
     if not synonyms_doc or "dict" not in synonyms_doc:
         raise ValueError("동의어 사전을 찾을 수 없습니다.")
     synonyms = synonyms_doc["dict"]
 
-    # MongoDB 쿼리 조건 빌드:
+    # --- MongoDB 쿼리 조건 빌드: ---
     # 1. 카테고리 필터링
     query_filter = {}
     inferred = infer_category(query, db)
@@ -91,7 +62,7 @@ def hybrid_search(query, top_k=10):
     # 2. 텍스트 인덱스를 활용한 키워드 필터링
     query_filter["$text"] = {"$search": query}
 
-    # Projection 필드 최적화
+    # --- projection 필드 최적화 ---
     projection = {
         "name": 1, "description": 1, "detail": 1,
         "imageEmbedding": 1, "textEmbedding": 1,
@@ -99,21 +70,21 @@ def hybrid_search(query, top_k=10):
         "category": 1, "csv": 1
     }
 
-    # DB에서 조건에 맞는 제품 조회
+    # --- DB에서 조건에 맞는 제품 조회 ---
     products = list(product_collection.find(query_filter, projection))
     print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
     if not products:
         return []
 
-    # 임베딩 계산을 위한 배열 생성
+    # --- 임베딩 계산을 위한 배열 생성 --- 
     image_embeddings = np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
     text_embeddings = np.array([p["textEmbedding"] for p in products], dtype=np.float32)
 
-    # 동의어 확장: 쿼리 확장 후 상위 3개 후보 사용
+    # --- 동의어 확장: 쿼리 확장 후 상위 3개 후보 사용 ---
     queries = expand_query(query, synonyms)[:3]
     print(f"[DEBUG] 동의어 확장 결과: {queries}")
 
-    # 임베딩 기반 유사도 계산 (Base Score)
+    # --- 임베딩 기반 유사도 계산 (Base Score) ---
     def compute_base_score(q):
         e5_embed = get_text_embedding(q)
         clip_embed = get_clip_text_embedding(q)
@@ -126,10 +97,10 @@ def hybrid_search(query, top_k=10):
         base_scores_list = list(executor.map(compute_base_score, queries))
     base_score = max(base_scores_list, key=lambda s: max(s))  # 여기서 선택 기준은 최댓값임
 
-    # 키워드 보너스 계산을 위해 쿼리를 단어 단위로 분리
+    # --- 키워드 보너스 계산을 위해 쿼리를 단어 단위로 분리 ---
     keywords = query.split()
 
-    # 각 제품에 대해 임베딩 기반 점수와 키워드 보너스를 계산하여 최종 점수 산출
+    # --- 각 제품에 대해 임베딩 기반 점수와 키워드 보너스를 계산하여 최종 점수 산출 ---
     final_scores = []
     for idx, product in enumerate(products):
         bonus = compute_keyword_bonus(product, keywords)  # 이거 0~1 사이의 값을 반환
@@ -139,7 +110,7 @@ def hybrid_search(query, top_k=10):
         final_scores.append(final_score)
     final_scores = np.array(final_scores)
 
-    # 최종 점수에 따라 제품 재정렬
+    # --- 최종 점수에 따라 제품 재정렬 ---
     best_indices = np.argsort(final_scores)[::-1]
 
     results = []

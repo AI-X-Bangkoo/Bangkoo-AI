@@ -2,6 +2,16 @@ import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-04
+
+- category_keywords 사전을 MongoDB에 저장하는 초기화 스크립트
+- 'dict' 필드를 포함한 JSON 구조로 upsert 수행
+- 기존 값이 있으면 갱신, 없으면 새로 삽입
+- 검색 필터링이나 Gemini 분류 기준으로 활용
+"""
+
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")
