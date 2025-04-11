@@ -274,7 +274,7 @@ async def recommend_with_ai_agent(
     result = rerank_ai_recommendations(
         room_style,
         query,
-        candidates[:50],  # ⬅ Gemini로 넘기는 후보 수 확대
+        candidates[:50],
         min_price=min_price,
         max_price=max_price,
         keyword=keyword,

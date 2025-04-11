@@ -4,31 +4,14 @@ import numpy as np
 from PIL import Image, UnidentifiedImageError
 from dotenv import load_dotenv
 from fastapi import HTTPException
-
-import torch
-from sklearn.metrics.pairwise import cosine_similarity
-
 from model_loader import model_manager
 from mongo_manager import mongo_manager
-from utils.get_image_caption import get_image_caption_and_embedding
+from utils.get_image_caption import get_image_caption_and_embedding, get_image_embedding
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from mongo_manager import mongo_manager
 
 load_dotenv()
-
-
-def get_image_embedding(image: Image.Image):
-    if not model_manager.ready:
-        raise RuntimeError("모델이 아직 로드되지 않았습니다.")
-
-    clip_model = model_manager.clip_model
-    clip_processor = model_manager.clip_processor
-    device = model_manager.device
-
-    inputs = clip_processor(images=image, return_tensors="pt").to(device)
-    with torch.no_grad():
-        features = clip_model.get_image_features(**inputs)
-        features = features / features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy()
-
 
 def image_search(contents: bytes, top_k=10):
     print("[5-1] 이미지 디코딩 시작")
@@ -85,21 +68,24 @@ def image_search(contents: bytes, top_k=10):
                     "index": "vector_index_v2",
                     "path": "combinedEmbedding",
                     "queryVector": query_vector,
-                    "numCandidates": 1000,
+                    "numCandidates": 100,
                     "limit": 50,
                     "similarity": "cosine"
+                }
+            },
+            {
+                "$project": {
+                    "name": 1, "description": 1, "detail": 1,
+                    "link": 1, "imageUrl": 1, "price": 1,
+                    "category": 1, "csv": 1,
+                    "score": {"$meta": "vectorSearchScore"},
+                    "combinedEmbedding": 1
                 }
             }
         ])
 
-        results_raw = list(results_cursor)
-        print(f"검색 결과 수: {len(results_raw)}")
-
-        results_sorted = sorted(
-            results_raw,
-            key=lambda d: -float(np.dot(query_vector, np.array(d["combinedEmbedding"], dtype=np.float32)) /
-                                 (np.linalg.norm(query_vector) * np.linalg.norm(np.array(d["combinedEmbedding"], dtype=np.float32))))
-        )
+        results_sorted = list(results_cursor)
+        print(f"검색 결과 수: {len(results_sorted)}")
 
     except Exception as e:
         import traceback
@@ -116,10 +102,7 @@ def image_search(contents: bytes, top_k=10):
     # 6. 결과 구성
     results = []
     for doc in filtered_results[:top_k]:
-        db_vec = np.array(doc["combinedEmbedding"], dtype=np.float32)
-        score = float(np.dot(query_vector, db_vec) /
-                      (np.linalg.norm(query_vector) * np.linalg.norm(db_vec)))
-        print(f"유사도 재계산: {doc.get('name')} → {score:.4f}")
+        print(f"유사도 (Mongo score): {doc.get('name')} → {doc.get('score'):.4f}")
         results.append({
             "이름": doc.get("name"),
             "설명": doc.get("description"),
@@ -129,7 +112,7 @@ def image_search(contents: bytes, top_k=10):
             "할인가": doc.get("price", "정보 없음"),
             "정상가": doc.get("price", "정보 없음"),
             "csv": doc.get("csv", ""),
-            "유사도": score
+            "유사도": float(doc.get("score", 0))
         })
 
     if not results:
