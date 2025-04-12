@@ -74,26 +74,7 @@ def extract_color_token(text):
     return None
 
 # --- 색상 보너스/패널티 적용 ---
-# def apply_color_bonus(results, color_key, bonus=0.05, penalty=-0.03):
-#     if not color_key:
-#         print("[COLOR] 색상 키 없음 → 보정 생략")
-#         return results
-
-#     color_dict = get_color_keywords_from_db()
-#     synonyms = color_dict.get(color_key, [])
-#     print(f"[COLOR] '{color_key}' 동의어들: {synonyms}")
-
-#     for doc in results:
-#         text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
-#         tokens = re.findall(r"[\uac00-\ud7a3a-zA-Z]+", text)
-#         if any(token in synonyms for token in tokens):
-#             doc["score"] = doc.get("score", 0) + bonus
-#             print(f"[COLOR] 보너스 적용 → {doc.get('name')}")
-#         else:
-#             doc["score"] = doc.get("score", 0) + penalty
-#             print(f"[COLOR] 패널티 적용 → {doc.get('name')}")
-#     return results
-def apply_color_bonus(results, color_key):
+def apply_color_bonus(results, color_key, bonus=0.05, penalty=-0.03):
     if not color_key:
         print("[COLOR] 색상 키 없음 → 보정 생략")
         return results
@@ -103,18 +84,43 @@ def apply_color_bonus(results, color_key):
     print(f"[COLOR] '{color_key}' 동의어들: {synonyms}")
 
     for doc in results:
-        try:
-            score = doc.get("score", 0)
-            if score is None or not isinstance(score, (int, float)) or math.isnan(score):
-                score = 0  # 기본 점수 재설정
-
-            text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
-            if any(syn in text for syn in synonyms):
-                doc["score"] = score + 0.05
-                print(f"[COLOR] 보너스 적용 → {doc.get('name')}")
-            else:
-                doc["score"] = score - 0.03
-                print(f"[COLOR] 패널티 적용 → {doc.get('name')}")
-        except Exception as e:
-            print(f"[COLOR] 색상 처리 실패: {e}")
+        text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
+        tokens = re.findall(r"[\uac00-\ud7a3a-zA-Z]+", text)
+        if any(token in synonyms for token in tokens):
+            doc["score"] = doc.get("score", 0) + bonus
+            print(f"[COLOR] 보너스 적용 → {doc.get('name')}")
+        else:
+            doc["score"] = doc.get("score", 0) + penalty
+            print(f"[COLOR] 패널티 적용 → {doc.get('name')}")
     return results
+# def apply_color_bonus(results, color_key):
+#     if not color_key:
+#         print("[COLOR] 색상 키 없음 → 보정 생략")
+#         return results
+
+#     color_dict = get_color_keywords_from_db()
+#     synonyms = color_dict.get(color_key, [])
+#     print(f"[COLOR] '{color_key}' 동의어들: {synonyms}")
+
+#     COLOR_BONUS_FACTOR = 1.2
+#     COLOR_PENALTY_FACTOR = 0.7
+
+#     for doc in results:
+#         try:
+#             score = doc.get("score", None)
+#             if score is None:
+#                 # 기존 final_scores 에서 score 필드가 없을 수 있으므로 기본 0점 설정
+#                 score = doc.get("유사도", 0)  # 혹은 0
+
+#             text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
+#             if any(syn in text for syn in synonyms):
+#                 doc["score"] = score * COLOR_BONUS_FACTOR
+#                 print(f"[COLOR] 보너스 적용 → {doc.get('name')}")
+#             else:
+#                 doc["score"] = score * COLOR_PENALTY_FACTOR
+#                 print(f"[COLOR] 패널티 적용 → {doc.get('name')}")
+#         except Exception as e:
+#             print(f"[COLOR] 색상 처리 실패: {e}")
+#             doc["score"] = score  # 예외 시 기존 점수 유지
+
+#     return results
