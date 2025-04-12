@@ -28,16 +28,42 @@ from utils.query_utils import (
     get_text_embedding,
     get_clip_text_embedding,
     compute_keyword_bonus,
-    extract_color_from_caption
+    extract_color_from_caption,
+    extract_keywords_from_query
 )
-from utils.visual_color_utils import apply_color_bonus
+from utils.visual_color_utils import get_color_keywords_from_db
+
+load_dotenv()
+
+import os
+import numpy as np
+from sklearn.metrics.pairwise import cosine_similarity
+from dotenv import load_dotenv
+from model_loader import model_manager
+import torch
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from mongo_manager import mongo_manager
+
+from utils.query_utils import (
+    infer_category,
+    expand_query,
+    get_text_embedding,
+    get_clip_text_embedding,
+    compute_keyword_bonus,
+    extract_color_from_caption,
+    extract_keywords_from_query
+)
+from utils.visual_color_utils import get_color_keywords_from_db
 
 load_dotenv()
 
 def hybrid_search(query, top_k=10):
     print("[DEBUG] hybrid_search 진입")
 
-    # --- 모델과 MongoDB 연결 상태 확인 ---
+    # --- 모델 및 DB 연결 상태 확인 ---
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
     if not mongo_manager.ready:
@@ -53,18 +79,17 @@ def hybrid_search(query, top_k=10):
         raise ValueError("동의어 사전을 찾을 수 없습니다.")
     synonyms = synonyms_doc["dict"]
 
-    # --- MongoDB 쿼리 조건 빌드: ---
-    # 1. 카테고리 필터링
+    # --- 카테고리 필터 조건 설정 ---
     query_filter = {}
     inferred = infer_category(query, db)
     print(f"[DEBUG] inferred 카테고리: {inferred}")
     if inferred:
         query_filter["category"] = inferred
 
-    # 2. 텍스트 인덱스를 활용한 키워드 필터링
+    # --- MongoDB 텍스트 검색 조건 추가 ---
     query_filter["$text"] = {"$search": query}
 
-    # --- projection 필드 최적화 ---
+    # --- 필요한 필드만 조회 ---
     projection = {
         "name": 1, "description": 1, "detail": 1,
         "imageEmbedding": 1, "textEmbedding": 1,
@@ -72,21 +97,35 @@ def hybrid_search(query, top_k=10):
         "category": 1, "csv": 1
     }
 
-    # --- DB에서 조건에 맞는 제품 조회 ---
+    # --- MongoDB에서 검색 ---
     products = list(product_collection.find(query_filter, projection))
     print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
     if not products:
         return []
 
-    # --- 임베딩 계산을 위한 배열 생성 --- 
+    # --- 색상 필터링 적용 ---
+    color_key = extract_color_from_caption(query)
+    if color_key:
+        color_dict = get_color_keywords_from_db()
+        color_synonyms = color_dict.get(color_key, [])
+        filtered = []
+        for p in products:
+            text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}".lower()
+            if any(s in text for s in color_synonyms):
+                filtered.append(p)
+        if filtered:
+            print(f"[COLOR] '{color_key}' 관련 제품만 필터링: {len(filtered)}개")
+            products = filtered
+
+    # --- 임베딩 배열 구성 ---
     image_embeddings = np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
     text_embeddings = np.array([p["textEmbedding"] for p in products], dtype=np.float32)
 
-    # --- 동의어 확장: 쿼리 확장 후 상위 3개 후보 사용 ---
+    # --- 쿼리 확장 (동의어 포함) ---
     queries = expand_query(query, synonyms)[:3]
     print(f"[DEBUG] 동의어 확장 결과: {queries}")
 
-    # --- 임베딩 기반 유사도 계산 (Base Score) ---
+    # --- 텍스트 및 이미지 임베딩 기반 유사도 계산 --- 
     def compute_base_score(q):
         e5_embed = get_text_embedding(q)
         clip_embed = get_clip_text_embedding(q)
@@ -94,34 +133,21 @@ def hybrid_search(query, top_k=10):
         sim_image = cosine_similarity(clip_embed, image_embeddings)[0]
         return 0.6 * sim_text + 0.4 * sim_image
 
-    from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor() as executor:
         base_scores_list = list(executor.map(compute_base_score, queries))
-    base_score = max(base_scores_list, key=lambda s: max(s))  # 여기서 선택 기준은 최댓값임
+    base_score = max(base_scores_list, key=lambda s: max(s))
 
-    # --- 키워드 보너스 계산을 위해 쿼리를 단어 단위로 분리 ---
+    # --- 최종 점수 계산 (임베딩 점수 + 키워드 보너스) ---
     keywords = query.split()
-
-    # --- 각 제품에 대해 임베딩 기반 점수와 키워드 보너스를 계산하여 최종 점수 산출 ---
     final_scores = []
     for idx, product in enumerate(products):
-        bonus = compute_keyword_bonus(product, keywords)  # 이거 0~1 사이의 값을 반환
-        # BONUS_SCALE은 보너스의 반영 강도를 조절 (0.1은 최대 0.1만큼 점수를 추가함)
+        bonus = compute_keyword_bonus(product, keywords)
         BONUS_SCALE = 0.1
         final_score = base_score[idx] + BONUS_SCALE * bonus
         final_scores.append(final_score)
     final_scores = np.array(final_scores)
-    
-    # --- 색상 보너스 적용 ---
-    try:
-        caption_text = f"{query}"
-        color_key = extract_color_from_caption(caption_text)
-        print(f"[COLOR] 추출된 색상 키: {color_key}")
-        products = apply_color_bonus(products, color_key)
-    except Exception as e:
-        print(f"[COLOR] 색상 처리 실패: {e}")
-    
-    # --- 최종 점수에 따라 제품 재정렬 ---
+
+    # --- 점수 기준 정렬 후 상위 top_k 결과 반환 ---
     best_indices = np.argsort(final_scores)[::-1]
 
     results = []
@@ -142,5 +168,6 @@ def hybrid_search(query, top_k=10):
         })
 
     return results
+
 
 

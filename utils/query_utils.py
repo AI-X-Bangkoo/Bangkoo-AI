@@ -4,6 +4,7 @@ from model_loader import model_manager
 from sklearn.metrics.pairwise import cosine_similarity
 from itertools import product
 from mongo_manager import mongo_manager
+from typing import Optional
 
 """
 최초 작성자: 김동규
@@ -107,3 +108,29 @@ def extract_color_from_caption(caption: str) -> str:
                 best_match = color
 
     return best_match
+
+def is_valid_query(query: str) -> bool:
+    return query is not None and query.strip() != ""
+
+def extract_keywords_from_query(query: str, db):
+    color_dict = db["color_keywords"].find_one({"_id": "korean"})["dict"]
+    category_dict = db["category_keywords"].find_one({"_id": "korean"})["dict"]
+
+    detected_color = None
+    detected_category = None
+
+    for color, keywords in color_dict.items():
+        if any(k in query for k in keywords):
+            detected_color = color
+            break
+
+    for category, keywords in category_dict.items():
+        if any(k in query for k in keywords):
+            detected_category = category
+            break
+
+    return detected_color, detected_category
+
+def separate_korean_words(query: str) -> str:
+    import re
+    return re.sub(r'(?<=[가-힣])(?=[가-힣])', ' ', query)
