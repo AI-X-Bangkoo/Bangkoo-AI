@@ -12,13 +12,14 @@ import torch
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
-from utils.get_image_caption import get_image_caption_and_embedding, get_image_embedding, extract_color_from_caption
+from utils.get_image_caption import get_image_caption_and_embedding, get_image_embedding
 from utils.fusion_network import FusionNetwork 
 from utils.visual_color_utils import (
     # rerank_by_visual_similarity,
     extract_color_token,
     apply_color_bonus
 )
+from utils.query_utils import extract_color_from_caption
 
 
 """
