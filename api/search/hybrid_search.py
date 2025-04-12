@@ -27,8 +27,10 @@ from utils.query_utils import (
     expand_query,
     get_text_embedding,
     get_clip_text_embedding,
-    compute_keyword_bonus
+    compute_keyword_bonus,
+    extract_color_from_caption
 )
+from utils.visual_color_utils import apply_color_bonus
 
 load_dotenv()
 
@@ -109,7 +111,16 @@ def hybrid_search(query, top_k=10):
         final_score = base_score[idx] + BONUS_SCALE * bonus
         final_scores.append(final_score)
     final_scores = np.array(final_scores)
-
+    
+    # --- 색상 보너스 적용 ---
+    try:
+        caption_text = f"{query}"
+        color_key = extract_color_from_caption(caption_text)
+        print(f"[COLOR] 추출된 색상 키: {color_key}")
+        products = apply_color_bonus(products, color_key)
+    except Exception as e:
+        print(f"[COLOR] 색상 처리 실패: {e}")
+    
     # --- 최종 점수에 따라 제품 재정렬 ---
     best_indices = np.argsort(final_scores)[::-1]
 

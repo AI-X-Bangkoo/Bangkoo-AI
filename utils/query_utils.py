@@ -3,6 +3,7 @@ import torch
 from model_loader import model_manager
 from sklearn.metrics.pairwise import cosine_similarity
 from itertools import product
+from mongo_manager import mongo_manager
 
 """
 최초 작성자: 김동규
@@ -63,3 +64,46 @@ def compute_keyword_bonus(product, keywords):
     text = f"{product.get('name','')} {product.get('description','')} {product.get('detail','')}"
     matched = sum(1 for k in keywords if k in text)
     return matched / len(keywords) if keywords else 0
+
+# def extract_color_from_caption(caption: str) -> str:
+#     """
+#     이미지 캡션에서 색상 정보를 추출하여 color_keywords에 정의된 색상 중 가장 일치하는 색상 반환
+#     """
+#     if not mongo_manager.ready:
+#         mongo_manager.connect()
+#     db = mongo_manager.db
+#     color_doc = db["color_keywords"].find_one({"_id": "korean"})
+#     if not color_doc or "dict" not in color_doc:
+#         return None
+
+#     color_dict = color_doc["dict"]
+#     caption_lower = caption.lower()
+#     for color, keywords in color_dict.items():
+#         if any(kw.lower() in caption_lower for kw in keywords):
+#             return color
+#     return None
+def extract_color_from_caption(caption: str) -> str:
+    """
+    이미지 캡션에서 등장 순서를 기준으로 가장 먼저 등장한 색상 키를 반환
+    """
+    if not mongo_manager.ready:
+        mongo_manager.connect()
+    db = mongo_manager.db
+    color_doc = db["color_keywords"].find_one({"_id": "korean"})
+    if not color_doc or "dict" not in color_doc:
+        return None
+
+    color_dict = color_doc["dict"]
+    caption_lower = caption.lower()
+
+    best_match = None
+    best_index = len(caption_lower)
+
+    for color, keywords in color_dict.items():
+        for kw in keywords:
+            idx = caption_lower.find(kw.lower())
+            if idx != -1 and idx < best_index:
+                best_index = idx
+                best_match = color
+
+    return best_match

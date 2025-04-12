@@ -83,21 +83,3 @@ def get_image_embedding(image: Image.Image):
         features = clip_model.get_image_features(**inputs)
         features = features / features.norm(dim=-1, keepdim=True)
     return features.cpu().numpy()
-
-def extract_color_from_caption(caption: str) -> str:
-    """
-    이미지 캡션에서 색상 정보를 추출하여 color_keywords에 정의된 색상 중 가장 일치하는 색상 반환
-    """
-    if not mongo_manager.ready:
-        mongo_manager.connect()
-    db = mongo_manager.db
-    color_doc = db["color_keywords"].find_one({"_id": "korean"})
-    if not color_doc or "dict" not in color_doc:
-        return None
-
-    color_dict = color_doc["dict"]
-    caption_lower = caption.lower()
-    for color, keywords in color_dict.items():
-        if any(kw.lower() in caption_lower for kw in keywords):
-            return color
-    return None
