@@ -17,7 +17,8 @@ from utils.fusion_network import FusionNetwork
 from utils.visual_color_utils import (
     # rerank_by_visual_similarity,
     extract_color_token,
-    apply_color_bonus
+    apply_color_bonus,
+    get_color_keywords_from_db
 )
 from utils.query_utils import extract_color_from_caption
 
@@ -131,13 +132,26 @@ def image_search(contents: bytes, top_k=10):
     else:
         results_sorted = filtered_results
 
-    # --- 색상 보너스 후처리 ---
+    # --- 색상 필터링 ---
     try:
         color_key = extract_color_from_caption(caption)
         print(f"[COLOR] 추출된 색상 키: {color_key}")
-        results_sorted = apply_color_bonus(results_sorted, color_key)
+        if color_key:
+            color_dict = get_color_keywords_from_db()
+            color_synonyms = color_dict.get(color_key, [])
+            filtered_color = []
+            for doc in results_sorted:
+                text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
+                if any(s in text for s in color_synonyms):
+                    filtered_color.append(doc)
+            if filtered_color:
+                print(f"[COLOR] 색상 '{color_key}' 관련 제품만 필터링: {len(filtered_color)}개")
+                results_sorted = filtered_color
+            else:
+                print(f"[COLOR] 색상 '{color_key}' 관련 제품 없음 → 기존 결과 유지")
     except Exception as e:
-        print(f"[COLOR] 색상 후처리 실패: {e}")
+        print(f"[COLOR] 색상 필터링 실패: {e}")
+
 
     # --- 시각적 유사도 기반 재정렬 ---
     # try:
