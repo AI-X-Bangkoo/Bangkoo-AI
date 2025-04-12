@@ -22,7 +22,6 @@ PROMPTS = {
         "Do not move it — just adjust its angle to fit the room’s depth. "
         "Leave everything else unchanged."
     ),
-    # "move": ...  # 필요 시 추가 가능
 }
 
 async def process_placement(mode: str, background_file, reference_file=None):
