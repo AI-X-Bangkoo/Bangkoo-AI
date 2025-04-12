@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException
 from model_loader import model_manager
 import torch
+from typing import Optional
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
