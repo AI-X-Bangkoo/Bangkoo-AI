@@ -10,18 +10,6 @@ from concurrent.futures import ThreadPoolExecutor
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
 
-"""
-최초 작성자: 김동규
-최초 작성일: 2025-04-02
-
-- 텍스트 기반 하이브리드 검색 기능 구현
-- 쿼리 내 키워드 기반으로 카테고리 및 텍스트 인덱스 필터 적용
-- imageEmbedding(1024), textEmbedding(768) 기반 유사도 계산
-- cosine similarity를 사용한 0.6:0.4 가중 결합
-- 동의어 확장 쿼리와 ThreadPoolExecutor 기반 병렬 유사도 계산
-- 키워드 매칭률 기반 보너스 점수(BONUS_SCALE) 추가 반영
-"""
-
 from utils.query_utils import (
     infer_category,
     expand_query,
@@ -29,32 +17,8 @@ from utils.query_utils import (
     get_clip_text_embedding,
     compute_keyword_bonus,
     extract_color_from_caption,
-    extract_keywords_from_query
-)
-from utils.visual_color_utils import get_color_keywords_from_db
-
-load_dotenv()
-
-import os
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-from dotenv import load_dotenv
-from model_loader import model_manager
-import torch
-import sys
-from concurrent.futures import ThreadPoolExecutor
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from mongo_manager import mongo_manager
-
-from utils.query_utils import (
-    infer_category,
-    expand_query,
-    get_text_embedding,
-    get_clip_text_embedding,
-    compute_keyword_bonus,
-    extract_color_from_caption,
-    extract_keywords_from_query
+    extract_keywords_from_query,
+    extract_shape_from_caption
 )
 from utils.visual_color_utils import get_color_keywords_from_db
 
@@ -117,6 +81,20 @@ def hybrid_search(query, top_k=10):
             print(f"[COLOR] '{color_key}' 관련 제품만 필터링: {len(filtered)}개")
             products = filtered
 
+    # --- 형태 필터링 적용 ---
+    shape_key, shape_synonyms = extract_shape_from_caption(query, db)
+    if shape_key:
+        filtered_shape = []
+        for p in products:
+            text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}".lower()
+            if any(s in text for s in shape_synonyms):
+                filtered_shape.append(p)
+        if filtered_shape:
+            print(f"[SHAPE] 형태 '{shape_key}' 관련 제품만 필터링: {len(filtered_shape)}개")
+            products = filtered_shape
+        else:
+            print(f"[SHAPE] 형태 '{shape_key}' 관련 제품 없음 → 기존 결과 유지")
+
     # --- 임베딩 배열 구성 ---
     image_embeddings = np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
     text_embeddings = np.array([p["textEmbedding"] for p in products], dtype=np.float32)
@@ -168,6 +146,3 @@ def hybrid_search(query, top_k=10):
         })
 
     return results
-
-
-

@@ -134,3 +134,21 @@ def extract_keywords_from_query(query: str, db):
 def separate_korean_words(query: str) -> str:
     import re
     return re.sub(r'(?<=[가-힣])(?=[가-힣])', ' ', query)
+
+def extract_shape_from_caption(caption: str, db):
+    shape_dict = db["shape_keywords"].find_one({"_id": "korean"})
+    if not shape_dict or "dict" not in shape_dict:
+        return None, []
+
+    caption = caption.lower()
+    match_key = None
+    synonyms = []
+    for shape_key, keywords in shape_dict["dict"].items():
+        for word in keywords:
+            if word in caption:
+                match_key = shape_key
+                synonyms = keywords
+                print(f"[SHAPE] 형태 키 '{shape_key}' 추출됨 (매칭: {word})")
+                return match_key, synonyms
+    print("[SHAPE] 형태 키 없음")
+    return None, []
