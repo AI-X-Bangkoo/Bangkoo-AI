@@ -115,8 +115,8 @@ async def recommend_or_search(
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
 
 @router.get("/recent-searches")
-def recent_searches():
-    return get_recent_searches()
+def recent_searches(user_id: str):
+    return get_recent_searches(user_id)
 
 @router.get("/popular-searches")
 def popular_searches():

@@ -77,7 +77,7 @@ def perform_vector_search(query_vector: list, top_k=50):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"벡터 검색 실패: {str(e)}")
 
-def image_search(contents: bytes, top_k=10):
+def image_search(contents: bytes, top_k=None):
     print("[5-1] 이미지 디코딩 시작")
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
@@ -185,7 +185,8 @@ def image_search(contents: bytes, top_k=10):
     # --- 최종 정렬 및 결과 구성 ---
     results_sorted.sort(key=lambda x: x.get("score", 0), reverse=True)
     final_results = []
-    for doc in results_sorted[:top_k]:
+    limit = top_k if top_k is not None else len(results_sorted)
+    for doc in results_sorted[:limit]:
         print(f"유사도 (최종 score): {doc.get('name')} → {doc.get('score'):.4f}")
         final_results.append({
             "이름": doc.get("name"),
