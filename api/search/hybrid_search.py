@@ -24,7 +24,7 @@ from utils.visual_color_utils import get_color_keywords_from_db
 
 load_dotenv()
 
-def hybrid_search(query, top_k=10):
+def hybrid_search(query, top_k=None):
     print("[DEBUG] hybrid_search 진입")
 
     # --- 모델 및 DB 연결 상태 확인 ---
@@ -129,7 +129,8 @@ def hybrid_search(query, top_k=10):
     best_indices = np.argsort(final_scores)[::-1]
 
     results = []
-    for i in best_indices[:top_k]:
+    limit = top_k if top_k is not None else len(products)
+    for i in best_indices[:limit]:
         item = products[i]
         results.append({
             "이름": item["name"],

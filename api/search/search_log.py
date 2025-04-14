@@ -10,21 +10,26 @@ from mongo_manager import mongo_manager
 """
 
 
-def save_search_log(query: str, source: str = "text"):
-    if not query:
+def save_search_log(query: str, user_id: str, source: str = "text"):
+    if not query or not user_id:
         return
     db = mongo_manager.db
     db["search_logs"].insert_one({
         "query": query.strip(),
+        "user_id": user_id,
         "timestamp": datetime.utcnow(),
         "source": source
     })
 
 
-def get_recent_searches(limit=10):
+
+def get_recent_searches(user_id: str, limit=10):
     db = mongo_manager.db
-    recent = db["search_logs"].find({}, {"query": 1}).sort("timestamp", -1).limit(limit)
+    recent = db["search_logs"].find(
+        {"user_id": user_id}, {"query": 1}
+    ).sort("timestamp", -1).limit(limit)
     return list({doc["query"] for doc in recent})
+
 
 
 def get_popular_searches(limit=10):
