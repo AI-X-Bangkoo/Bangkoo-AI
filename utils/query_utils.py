@@ -5,6 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from itertools import product
 from mongo_manager import mongo_manager
 from typing import Optional
+import re
 
 """
 최초 작성자: 김동규
@@ -44,17 +45,44 @@ def get_text_embedding(text):
     return text_model.encode([f"query: {text}"], normalize_embeddings=True)
 
 
+# def get_clip_text_embedding(text):
+#     clip_model = model_manager.clip_model
+#     clip_processor = model_manager.clip_processor
+#     device = model_manager.device
+
+#     inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True)
+#     inputs = {k: v.to(device) for k, v in inputs.items()}
+#     with torch.no_grad():
+#         features = clip_model.get_text_features(**inputs)
+#         features = features / features.norm(dim=-1, keepdim=True)
+#     return features.cpu().numpy()
 def get_clip_text_embedding(text):
     clip_model = model_manager.clip_model
     clip_processor = model_manager.clip_processor
     device = model_manager.device
 
-    inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True)
-    inputs = {k: v.to(device) for k, v in inputs.items()}
-    with torch.no_grad():
-        features = clip_model.get_text_features(**inputs)
-        features = features / features.norm(dim=-1, keepdim=True)
-    return features.cpu().numpy()
+    if not text or not text.strip():
+        raise ValueError(f"[ERROR] get_clip_text_embedding: 빈 문자열 또는 None 입력: '{text}'")
+
+    try:
+        inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True)
+        if "input_ids" not in inputs or inputs["input_ids"] is None:
+            raise ValueError(f"[ERROR] CLIP 토크나이저 처리 실패: '{text}' → input_ids 없음")
+
+        input_len = inputs["input_ids"].shape[1]
+        if input_len < 4:
+            raise ValueError(f"[ERROR] 입력 토큰 길이 너무 짧음 (길이={input_len}): '{text}'")
+
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        with torch.no_grad():
+            features = clip_model.get_text_features(**inputs)
+            features = features / features.norm(dim=-1, keepdim=True)
+        return features.cpu().numpy()
+
+    except Exception as e:
+        raise ValueError(f"[ERROR] get_clip_text_embedding 예외 발생: '{text}' → {e}")
+
 
 
 def compute_keyword_bonus(product, keywords):
@@ -157,3 +185,26 @@ def extract_shape_from_caption(caption: str, db):
                 return match_key, synonyms
     print("[SHAPE] 형태 키 없음")
     return None, []
+
+# --- 공백 삽입 함수 ---
+def auto_insert_space(query: str, db) -> str:
+    color_doc = db["color_keywords"].find_one({"_id": "korean"})
+    shape_doc = db["shape_keywords"].find_one({"_id": "korean"})
+    category_doc = db["category_keywords"].find_one({"_id": "korean"})
+
+    color_keywords = [item for sublist in color_doc["dict"].values() for item in sublist]
+    shape_keywords = [item for sublist in shape_doc["dict"].values() for item in sublist]
+    category_keywords = [item for sublist in category_doc["dict"].values() for item in sublist]
+
+    parts = []
+    temp = query
+    for kw_list in [color_keywords, shape_keywords, category_keywords]:
+        for kw in sorted(kw_list, key=len, reverse=True):  # 긴 단어 우선
+            if kw in temp:
+                parts.append(kw)
+                temp = temp.replace(kw, " ", 1)  # 첫 등장만 제거
+                break  # 한 분류당 하나만 추출
+
+    parts.append(temp.replace(" ", ""))  # 남은 부분
+    return " ".join(filter(None, parts))
+
