@@ -7,6 +7,7 @@ from api.search.image_search import image_search
 from api.search.hybrid_search import hybrid_search
 from utils.extract_direct_image_url import extract_direct_image_url
 from utils.gemini_utils import should_use_image_for_recommendation
+from api.search.search_log import get_recent_searches, get_popular_searches, save_search_log
 import base64
 import re
 from utils.query_utils import is_valid_query
@@ -90,6 +91,7 @@ async def recommend_or_search(
     # 이미지 + 쿼리 (추천 요청)
     if contents is not None and is_valid_query(query):
         print("[DEBUG] 이미지 + 쿼리 기반 분기 시작")
+        save_search_log(query, source="image+text")
         if should_use_image_for_recommendation(query):
             print("[DEBUG] Gemini 판단 결과: 이미지 기반 추천 필요 → Gemini 추천으로 분기")
             return await recommend_with_ai_agent(
@@ -107,6 +109,15 @@ async def recommend_or_search(
     # 쿼리만 있는 경우 (이미지 없이)
     if is_valid_query(query):
         print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
+        save_search_log(query, source="text")
         return hybrid_search(query)
 
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
+
+@router.get("/recent-searches")
+def recent_searches():
+    return get_recent_searches()
+
+@router.get("/popular-searches")
+def popular_searches():
+    return get_popular_searches()
