@@ -109,13 +109,13 @@ async def recommend_or_search(
     # 쿼리만 있는 경우 (이미지 없이)
     if is_valid_query(query):
         print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
-        save_search_log(query, source="text")
+        save_search_log(query, user_id="anonymous", source="text")
         return hybrid_search(query)
 
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
 
 @router.get("/recent-searches")
-def recent_searches(user_id: str):
+def recent_searches(user_id: str = "anonymous"):
     return get_recent_searches(user_id)
 
 @router.get("/popular-searches")

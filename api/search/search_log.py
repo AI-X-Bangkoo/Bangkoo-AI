@@ -10,8 +10,8 @@ from mongo_manager import mongo_manager
 """
 
 
-def save_search_log(query: str, user_id: str, source: str = "text"):
-    if not query or not user_id:
+def save_search_log(query: str, user_id: str = "anonymous", source: str = "text"):
+    if not query:
         return
     db = mongo_manager.db
     db["search_logs"].insert_one({
