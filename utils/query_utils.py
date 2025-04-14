@@ -135,6 +135,11 @@ def separate_korean_words(query: str) -> str:
     import re
     return re.sub(r'(?<=[가-힣])(?=[가-힣])', ' ', query)
 
+def get_shape_keywords_from_db():
+    db = mongo_manager.db
+    doc = db["shape_keywords"].find_one({"_id": "korean"})
+    return doc["dict"] if doc and "dict" in doc else {}
+
 def extract_shape_from_caption(caption: str, db):
     shape_dict = db["shape_keywords"].find_one({"_id": "korean"})
     if not shape_dict or "dict" not in shape_dict:
