@@ -33,7 +33,8 @@ async def recommend_or_search(
     min_price: Optional[int] = Form(None),
     max_price: Optional[int] = Form(None),
     keyword: Optional[str] = Form(None),
-    style: Optional[str] = Form(None)
+    style: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None)
 ):
     print("[DEBUG] /search 진입")
     try:
@@ -113,11 +114,3 @@ async def recommend_or_search(
         return hybrid_search(query)
 
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
-
-@router.get("/recent-searches")
-def recent_searches(user_id: str = "anonymous"):
-    return get_recent_searches(user_id)
-
-@router.get("/popular-searches")
-def popular_searches():
-    return get_popular_searches()
