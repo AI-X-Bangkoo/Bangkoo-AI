@@ -28,7 +28,6 @@ app.include_router(recommend_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(recommend_or_search_router, prefix="/api")
 app.include_router(placement_router, prefix="/api")
-
 app.include_router(style_recommend_router, prefix="/api")
 
 @app.get("/")
