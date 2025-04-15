@@ -7,6 +7,22 @@ from dotenv import load_dotenv
 from model_loader import model_manager
 import numpy as np
 
+<<<<<<< HEAD
+=======
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-04
+
+- 제품 정보를 MongoDB에 업로드하면서 누락된 임베딩을 자동 생성
+- imageEmbedding: 이미지 URL을 통해 추론
+- textEmbedding: name + description + detail을 기반으로 생성
+- createdAt / updatedAt 필드를 기준으로 upsert
+- 중복 여부는 link 필드를 기준으로 판단
+- bulk_write로 MongoDB에 일괄 반영
+"""
+
+
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")

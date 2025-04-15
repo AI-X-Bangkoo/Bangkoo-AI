@@ -1,15 +1,22 @@
 import torch
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from sentence_transformers import SentenceTransformer
+<<<<<<< HEAD
 from utils.dino_sam2_config import GROUNDING_DINO_CONFIG,GROUNDING_DINO_WEIGHTS,SAM2_CHECKPOINT,SAM2_MODEL_CONFIG
 import requests
 import os
 
+=======
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 
 """
     최초 작성자: 김동규
     최초 작성일: 2025-04-07
+<<<<<<< HEAD
     수정일: 2025-04-11 (김범석) (sam2,dino model 추가)
+=======
+    
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     모델 및 DB 초기화를 lazy-load 또는 startup 이벤트에서 처리
 """
 
@@ -23,10 +30,13 @@ class ModelManager:
         self.clip_processor = None
         self.text_model = None
         self.ready = False
+<<<<<<< HEAD
         self.dino_model = None
         self.dino_pth = None
         self.sam2_model = None
         self.sam2_yaml = None
+=======
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 
     def load(self):
         print("[1] Loading CLIP model...")
@@ -43,6 +53,7 @@ class ModelManager:
         self.text_model = SentenceTransformer("intfloat/e5-base-v2", device=self.device)
         print("[7] Loading AutoTokenizer...")
         self.text_tokenizer = AutoTokenizer.from_pretrained("intfloat/e5-base-v2")  
+<<<<<<< HEAD
         print("[8] Loading Grounding Dino & Sam2 model...")
         # file_id = '1B0UPAEb4yhmGNx6jPyxoQtnVUcU6gHw-'
         # url = f"https://drive.google.com/uc?id={file_id}"
@@ -74,6 +85,10 @@ class ModelManager:
                 print(f"❌ 다운로드 실패: {filename} ({response.status_code})")
         
         print("[9] All models loaded")
+=======
+        print("[8] All models loaded")
+        
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
         self.ready = True
         
 model_manager = ModelManager()

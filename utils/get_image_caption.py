@@ -6,6 +6,21 @@ from mongo_manager import mongo_manager
 import numpy as np
 import torch
 
+<<<<<<< HEAD
+=======
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-09
+
+- 이미지 한 장을 Gemini에 입력하여 설명과 카테고리를 추출
+- 응답에서 '설명'과 '카테고리'를 파싱하여 텍스트 임베딩 생성
+- category_keywords에 정의된 카테고리 목록 중 하나만 선택되도록 유도
+- 임베딩은 e5-base-v2 모델을 사용하여 정규화 후 float32로 반환
+- 이미지 임베딩은 CLIP 기반 jina-clip-v2 모델을 사용하여 추출
+"""
+
+
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 def get_image_caption_and_embedding(image: Image.Image):
     model = GenerativeModel("gemini-1.5-flash")
 
@@ -70,4 +85,8 @@ def get_image_embedding(image: Image.Image):
     with torch.no_grad():
         features = clip_model.get_image_features(**inputs)
         features = features / features.norm(dim=-1, keepdim=True)
+<<<<<<< HEAD
     return features.cpu().numpy()
+=======
+    return features.cpu().numpy()
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f

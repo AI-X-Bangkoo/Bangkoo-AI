@@ -24,5 +24,8 @@ __pycache__/
 
 # 기타 불필요한 로그
 *.log
+<<<<<<< HEAD
 download_models/
 
+=======
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f

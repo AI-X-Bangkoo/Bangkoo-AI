@@ -9,10 +9,12 @@ from api.llmAgent.router import router as recommend_or_search_router
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from utils.constants import UPLOAD_DIR
+from api.recommend.router import router as style_recommend_router
 import threading
 import asyncio
 
 app = FastAPI()
+
 
 # 2025-04-12 김범석 추가 (static 파일 접근)
 app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
@@ -35,7 +37,9 @@ app.include_router(recommend_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(recommend_or_search_router, prefix="/api")
 app.include_router(placement_router, prefix="/api")
+
 app.include_router(detection_router, prefix="/api")
+app.include_router(style_recommend_router, prefix="/api")
 # app.include_router()
 
 @app.get("/")

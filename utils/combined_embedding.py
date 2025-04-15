@@ -3,7 +3,22 @@ import sys
 import numpy as np
 from tqdm import tqdm
 
+<<<<<<< HEAD
 # 경로 설정 및 mongo_manager import
+=======
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-10
+
+- 이미지 임베딩(1024차원) + 텍스트 임베딩(768차원)을 결합하여 
+  벡터 검색용 combinedEmbedding(1792차원) 필드 생성
+
+- 기존 combinedEmbedding 필드 제거
+- imageEmbedding과 textEmbedding을 정규화 후 0.7:0.3 비율로 결합
+- 결합된 벡터도 정규화 후 float32 배열 형태로 MongoDB에 저장
+- 벡터 검색(Index type: float32 array)에 사용 가능
+"""
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mongo_manager import mongo_manager
 
@@ -14,22 +29,37 @@ if not mongo_manager.ready:
     mongo_manager.connect()
 collection = mongo_manager.products
 
+<<<<<<< HEAD
 # ✅ Step 1: combinedEmbedding 필드 삭제
 print("🧹 기존 combinedEmbedding 필드 삭제 중...")
+=======
+# Step 1: combinedEmbedding 필드 삭제
+print("기존 combinedEmbedding 필드 삭제 중...")
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 delete_result = collection.update_many(
     {"combinedEmbedding": {"$exists": True}},
     {"$unset": {"combinedEmbedding": ""}}
 )
+<<<<<<< HEAD
 print(f"🧼 삭제 완료: {delete_result.modified_count}개 문서\n")
 
 # ✅ Step 2: ID만 미리 가져오기
+=======
+print(f"삭제 완료: {delete_result.modified_count}개 문서\n")
+
+# Step 2: ID만 미리 가져오기
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 query = {
     "imageEmbedding": {"$exists": True},
     "textEmbedding": {"$exists": True}
 }
 ids = [doc["_id"] for doc in collection.find(query, {"_id": 1}).sort("_id", 1)]
 total = len(ids)
+<<<<<<< HEAD
 print(f"📦 총 대상 문서 수: {total}개")
+=======
+print(f"총 대상 문서 수: {total}개")
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 
 count = 0
 for i in range(0, total, BATCH_SIZE):
@@ -57,7 +87,14 @@ for i in range(0, total, BATCH_SIZE):
             count += 1
 
         except Exception as e:
+<<<<<<< HEAD
             print(f"❌ 오류 (ID: {doc['_id']}): {e}")
             continue
 
 print(f"\n✅ 최종 완료: 총 {count}개 문서 updated (배치 단위, float 배열 저장)")
+=======
+            print(f"오류 (ID: {doc['_id']}): {e}")
+            continue
+
+print(f"\n최종 완료: 총 {count}개 문서 updated (배치 단위, float 배열 저장)")
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f

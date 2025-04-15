@@ -1,6 +1,20 @@
 import re
 from collections import Counter
 
+<<<<<<< HEAD
+=======
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-11
+
+- 사용자 쿼리에서 한글 키워드 추출 및 필터링
+- 키워드를 기반으로 카테고리를 유추하거나 제품을 필터링
+- 제품 정보에서 name, description, detail을 통합 검색 대상으로 사용
+- 불필요한 단어 필터링 ('추천해줘', '보여줘' 등)
+- 카테고리 필터는 소문자 비교 기반으로 일치 여부 판별
+"""
+
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 def extract_keywords_from_query(query: str) -> list:
     """
     쿼리 문자열에서 최소 2글자 이상의 한글 단어를 추출하고,
