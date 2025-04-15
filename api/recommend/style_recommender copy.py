@@ -1,0 +1,116 @@
+import sys
+import os
+import json
+import time
+import asyncio
+import numpy as np
+from dotenv import load_dotenv
+from sklearn.metrics.pairwise import cosine_similarity
+import google.generativeai as genai
+from model_loader import model_manager
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from mongo_manager import mongo_manager
+from utils.markdown_utils import extract_json_from_markdown
+
+load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+
+async def style_recommender(styles, min_price=None, max_price=None, top_k=10):
+    if not mongo_manager.ready:
+        mongo_manager.connect()
+
+    db = mongo_manager.db
+    collection = db["products"]
+
+    # --- 스타일 설명 구성 ---
+    style_text = ", ".join(styles)
+    style_desc = f"이 스타일은 {style_text} 스타일로, 조화롭고 공간을 정돈되게 만들어주는 인테리어를 중시합니다."
+
+    # --- 스타일 쿼리 임베딩 (768차원) ---
+    query_vec = model_manager.text_model.encode([f"query: {style_desc}"], normalize_embeddings=True)
+
+    # --- product에서 textEmbedding이 있는 모든 문서 가져오기 ---
+    cursor = collection.find(
+        {"textEmbedding": {"$exists": True}},
+        {"name": 1, "description": 1, "detail": 1, "price": 1, "link": 1, "imageUrl": 1, "csv": 1, "textEmbedding": 1}
+    )
+
+    products = []
+    vectors = []
+    for doc in cursor:
+        try:
+            price_val = int(str(doc.get("price", "0")).replace(",", "").strip())
+            if min_price and price_val < min_price:
+                continue
+            if max_price and price_val > max_price:
+                continue
+            doc["price"] = price_val
+            products.append(doc)
+            vectors.append(doc["textEmbedding"])
+        except:
+            continue
+
+    if not products:
+        return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
+
+    # --- 코사인 유사도 계산 ---
+    vectors = np.array(vectors)
+    sims = cosine_similarity(query_vec, vectors)[0]
+    top_indices = sims.argsort()[::-1][:30]
+    candidates = [products[i] for i in top_indices]
+
+    # --- Gemini 프롬프트 구성 ---
+    product_summary = "\n".join([
+        f"이름: {p['name']}, 가격: {p['price']}, 링크: {p['link']}, 상세설명: {p.get('detail', '')}, 이미지: {p.get('imageUrl')}"
+        for p in candidates
+    ])
+
+    filter_text = f"{min_price:,} ~ {max_price:,}원" if min_price and max_price else "가격 제한 없음"
+
+    prompt = f"""
+당신은 인테리어 스타일 기반 추천 전문가입니다.
+
+[사용자 선호 스타일]
+{style_text}
+
+[가격 필터]
+{filter_text}
+
+[추천 후보 제품 요약]
+{product_summary}
+
+[추천 조건]
+- '{style_text}' 스타일에 어울리는 제품만 골라주세요.
+- 가격대({min_price} ~ {max_price})를 벗어나는 제품은 추천하지 마세요.
+- 최대 10개의 제품을 JSON 배열 형식으로 추천하세요.
+- 추천이유는 단순 키워드가 아닌, 색상, 디자인 형태, 재질, 감성적 분위기 등 실제 어울리는 이유를 **2~3문장**으로 구체적으로 작성해 주세요.
+
+[반환 예시]
+[
+  {{
+    "이름": "제품명",
+    "설명": "간단한 설명",
+    "링크": "제품 URL",
+    "이미지": "이미지 URL",
+    "상세설명": "제품의 특징",
+    "가격": 123000,
+    "추천이유": "화이트 톤과 직선적 디자인이 미니멀리즘에 어울립니다. 공간을 정돈된 분위기로 만들어주는 데 효과적입니다."
+  }}
+]
+"""
+
+    start = time.time()
+    response = await asyncio.to_thread(model.generate_content, prompt)
+    print(f"[DEBUG] Gemini 호출 소요시간: {time.time() - start:.2f}초")
+
+    try:
+        parsed_json = extract_json_from_markdown(response.text)
+        return json.loads(parsed_json)
+    except Exception as e:
+        print("[ERROR] Gemini 응답 파싱 실패:", e)
+        print("[RESPONSE]", response.text)
+        return [{"이름": "추천 실패", "추천이유": "Gemini 응답 파싱 실패"}]

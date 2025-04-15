@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from model_loader import model_manager
 import torch
 from typing import Optional
+import pillow_avif
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
@@ -21,7 +22,7 @@ from utils.visual_color_utils import (
     apply_color_bonus,
     get_color_keywords_from_db
 )
-from utils.query_utils import extract_color_from_caption
+from utils.query_utils import extract_color_from_caption, extract_shape_from_caption, get_shape_keywords_from_db
 
 
 """
@@ -76,7 +77,7 @@ def perform_vector_search(query_vector: list, top_k=50):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"벡터 검색 실패: {str(e)}")
 
-def image_search(contents: bytes, top_k=10):
+def image_search(contents: bytes, top_k=None):
     print("[5-1] 이미지 디코딩 시작")
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
@@ -126,7 +127,8 @@ def image_search(contents: bytes, top_k=10):
     target_category = category.strip().lower() if isinstance(category, str) else ""
     for doc in results_sorted:
         product_category = doc.get("category", "").strip().lower()
-        if target_category and target_category in product_category:
+        # if target_category and target_category in product_category:
+        if target_category and product_category == target_category:
             filtered_results.append(doc)
     if not filtered_results:
         print("검색 결과 없음 (카테고리 필터 포함)")
@@ -143,6 +145,7 @@ def image_search(contents: bytes, top_k=10):
             filtered_color = []
             for doc in results_sorted:
                 text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
+                # print(f"[DEBUG COLOR] {doc['name']} → {text}")
                 if any(s in text for s in color_synonyms):
                     filtered_color.append(doc)
             if filtered_color:
@@ -152,6 +155,25 @@ def image_search(contents: bytes, top_k=10):
                 print(f"[COLOR] 색상 '{color_key}' 관련 제품 없음 → 기존 결과 유지")
     except Exception as e:
         print(f"[COLOR] 색상 필터링 실패: {e}")
+        
+        # --- 형태 필터링 ---
+    try:
+        shape_key, shape_synonyms = extract_shape_from_caption(caption, mongo_manager.db)
+        print(f"[SHAPE] 추출된 형태 키: {shape_key}")
+        if shape_key:
+            filtered_shape = []
+            for doc in results_sorted:
+                text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
+                # print(f"[DEBUG SHAPE] {doc['name']} → {text}")
+                if any(shape_word in text for shape_word in shape_synonyms):
+                    filtered_shape.append(doc)
+            if filtered_shape:
+                print(f"[SHAPE] 형태 '{shape_key}' 관련 제품만 필터링: {len(filtered_shape)}개")
+                results_sorted = filtered_shape
+            else:
+                print(f"[SHAPE] 형태 '{shape_key}' 관련 제품 없음 → 기존 결과 유지")
+    except Exception as e:
+        print(f"[SHAPE] 형태 필터링 실패: {e}")
 
 
     # --- 시각적 유사도 기반 재정렬 ---
@@ -163,7 +185,8 @@ def image_search(contents: bytes, top_k=10):
     # --- 최종 정렬 및 결과 구성 ---
     results_sorted.sort(key=lambda x: x.get("score", 0), reverse=True)
     final_results = []
-    for doc in results_sorted[:top_k]:
+    limit = top_k if top_k is not None else len(results_sorted)
+    for doc in results_sorted[:limit]:
         print(f"유사도 (최종 score): {doc.get('name')} → {doc.get('score'):.4f}")
         final_results.append({
             "이름": doc.get("name"),

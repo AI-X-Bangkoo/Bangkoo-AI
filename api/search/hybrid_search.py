@@ -18,14 +18,18 @@ from utils.query_utils import (
     compute_keyword_bonus,
     extract_color_from_caption,
     extract_keywords_from_query,
-    extract_shape_from_caption
+    extract_shape_from_caption,
+    auto_insert_space
 )
 from utils.visual_color_utils import get_color_keywords_from_db
 
 load_dotenv()
 
-def hybrid_search(query, top_k=10):
+def hybrid_search(query, top_k=None):
     print("[DEBUG] hybrid_search 진입")
+    
+    query = auto_insert_space(query, mongo_manager.db)
+    print(f"[DEBUG] 공백 보정된 쿼리: {query}")
 
     # --- 모델 및 DB 연결 상태 확인 ---
     if not model_manager.ready:
@@ -111,9 +115,28 @@ def hybrid_search(query, top_k=10):
         sim_image = cosine_similarity(clip_embed, image_embeddings)[0]
         return 0.6 * sim_text + 0.4 * sim_image
 
-    with ThreadPoolExecutor() as executor:
-        base_scores_list = list(executor.map(compute_base_score, queries))
-    base_score = max(base_scores_list, key=lambda s: max(s))
+    # with ThreadPoolExecutor() as executor:
+    #     base_scores_list = list(executor.map(compute_base_score, queries))
+    # base_score = max(base_scores_list, key=lambda s: max(s))
+        # 안전하게 유사도 점수 계산 (에러 나는 쿼리 건너뛰기)
+    valid_scores = []
+    for q in queries:
+        try:
+            e5_embed = get_text_embedding(q)
+            clip_embed = get_clip_text_embedding(q)
+            sim_text = cosine_similarity(e5_embed, text_embeddings)[0]
+            sim_image = cosine_similarity(clip_embed, image_embeddings)[0]
+            score = 0.6 * sim_text + 0.4 * sim_image
+            valid_scores.append(score)
+        except Exception as e:
+            print(f"[SKIP] '{q}' 임베딩 실패 → {e}")
+
+    if not valid_scores:
+        print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
+        return []
+
+    base_score = max(valid_scores, key=lambda s: max(s))
+
 
     # --- 최종 점수 계산 (임베딩 점수 + 키워드 보너스) ---
     keywords = query.split()
@@ -129,7 +152,8 @@ def hybrid_search(query, top_k=10):
     best_indices = np.argsort(final_scores)[::-1]
 
     results = []
-    for i in best_indices[:top_k]:
+    limit = top_k if top_k is not None else len(products)
+    for i in best_indices[:limit]:
         item = products[i]
         results.append({
             "이름": item["name"],
