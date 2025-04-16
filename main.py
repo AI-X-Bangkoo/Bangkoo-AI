@@ -12,6 +12,8 @@ from utils.constants import UPLOAD_DIR
 from api.recommend.router import router as style_recommend_router
 import threading
 import asyncio
+from utils.query_utils import load_keyword_cache
+from mongo_manager import mongo_manager
 
 app = FastAPI()
 
@@ -22,7 +24,7 @@ app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
 @app.on_event("startup")
 async def startup_event():
     print("startup_event 시작")
-
+    load_keyword_cache(mongo_manager.db)
     async def async_model_load():
         try:
             await asyncio.to_thread(model_manager.load)
@@ -45,3 +47,6 @@ app.include_router(style_recommend_router, prefix="/api")
 @app.get("/")
 def read_root():
     return {"status": "ok", "model_ready": model_manager.ready}
+
+# ASGI application reference
+a00 = app

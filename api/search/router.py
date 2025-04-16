@@ -7,16 +7,9 @@ from api.search.image_search import image_search
 from api.search.hybrid_search import hybrid_search
 from utils.extract_direct_image_url import extract_direct_image_url
 from utils.gemini_utils import should_use_image_for_recommendation
-<<<<<<< HEAD
-import base64
-import re
-
-=======
-from api.search.search_log import get_recent_searches, get_popular_searches, save_search_log
 import base64
 import re
 from utils.query_utils import is_valid_query
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 
 """
 최초 작성자: 김동규
@@ -39,12 +32,8 @@ async def recommend_or_search(
     min_price: Optional[int] = Form(None),
     max_price: Optional[int] = Form(None),
     keyword: Optional[str] = Form(None),
-<<<<<<< HEAD
-    style: Optional[str] = Form(None)
-=======
     style: Optional[str] = Form(None),
     user_id: Optional[str] = Form(None)
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 ):
     print("[DEBUG] /search 진입")
     try:
@@ -68,40 +57,15 @@ async def recommend_or_search(
         image_upload_file = StarletteUploadFile(filename=image.filename, file=io.BytesIO(contents))
     # 파일 업로드가 없고 image_url이 있으면 image_url 처리
     elif image_url:
-<<<<<<< HEAD
-        if image_url.startswith("http"):
-            true_url = extract_direct_image_url(image_url)
-            print(f"[DEBUG] 이미지 URL 변환: {true_url}")
-            try:
-=======
         try:
             if image_url.startswith("http"):
                 # 직접 접근 가능한 이미지 URL 처리
                 true_url = extract_direct_image_url(image_url)
                 print(f"[DEBUG] 이미지 URL 변환: {true_url}")
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
                 response = requests.get(true_url)
                 if response.status_code != 200:
                     raise HTTPException(status_code=400, detail="이미지 URL 접근 실패")
                 contents = response.content
-<<<<<<< HEAD
-            except Exception as e:
-                print(f"[ERROR] 이미지 다운로드 실패: {e}")
-                raise HTTPException(status_code=400, detail="이미지 다운로드 실패")
-        else:
-            print("[DEBUG] image_url 파라미터가 base64 데이터인 것으로 간주")
-            try:
-                base64_data = re.sub("^data:image/.+;base64,", "", image_url)
-                contents = base64.b64decode(base64_data)
-            except Exception as e:
-                print(f"[ERROR] base64 이미지 디코딩 실패: {e}")
-                raise HTTPException(status_code=400, detail="이미지 base64 디코딩 실패")
-        # 생성된 contents로 새 UploadFile 객체 생성
-        image_upload_file = StarletteUploadFile(filename="temp.jpg", file=io.BytesIO(contents))
-
-    # 이미지 단독 검색: 쿼리가 없으면 이미지 기반 검색 실행
-    if contents is not None and (query is None or query.strip() == ""):
-=======
             else:
                 # base64 처리
                 print("[DEBUG] image_url 파라미터가 base64 데이터인 것으로 간주")
@@ -121,19 +85,12 @@ async def recommend_or_search(
 
     # 이미지 단독 검색: 쿼리가 없으면 이미지 기반 검색 실행
     if contents is not None and not is_valid_query(query):
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
         print("[DEBUG] 이미지 단독 검색으로 분기")
         return image_search(contents)
 
     # 이미지 + 쿼리 (추천 요청)
-<<<<<<< HEAD
-    if contents is not None and query:
-        print("[DEBUG] 이미지 + 쿼리 기반 분기 시작")
-=======
     if contents is not None and is_valid_query(query):
         print("[DEBUG] 이미지 + 쿼리 기반 분기 시작")
-        save_search_log(query, source="image+text")
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
         if should_use_image_for_recommendation(query):
             print("[DEBUG] Gemini 판단 결과: 이미지 기반 추천 필요 → Gemini 추천으로 분기")
             return await recommend_with_ai_agent(
@@ -149,14 +106,8 @@ async def recommend_or_search(
             return hybrid_search(query)
 
     # 쿼리만 있는 경우 (이미지 없이)
-<<<<<<< HEAD
-    if query:
-        print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
-=======
     if is_valid_query(query):
         print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
-        save_search_log(query, user_id="anonymous", source="text")
->>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
         return hybrid_search(query)
 
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")

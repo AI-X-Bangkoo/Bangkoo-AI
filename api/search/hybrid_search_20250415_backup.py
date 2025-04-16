@@ -57,38 +57,29 @@ def hybrid_search(query, top_k=None):
     if inferred:
         query_filter["category"] = inferred
 
-    print("[DEBUG] Atlas Search 파이프라인 구성")
+    # --- MongoDB 텍스트 검색 조건 추가 ---
+    print("[DEBUG] 텍스트 검색 조건 추가 진입")
+    query_filter["$text"] = {"$search": query}
 
-    pipeline = [
-        {
-            "$search": {
-                "index": "search_index",
-                "text": {
-                    "query": query,
-                    "path": ["name", "description", "detail"]
-                }
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "name": 1, "description": 1, "detail": 1,
-                "imageEmbedding": 1, "textEmbedding": 1,
-                "link": 1, "imageUrl": 1, "price": 1,
-                "category": 1, "csv": 1,
-                "searchScore": { "$meta": "searchScore" }
-            }
-        },
-        { "$limit": 200 }  # 필요 시 조정 가능
-    ]
+    # --- 필요한 필드만 조회 ---
+    print("[DEBUG] 필요한 필드만 조회 진입")
+    projection = {
+        "_id": 0,
+        "name": 1, "description": 1, "detail": 1,
+        "imageEmbedding": 1, "textEmbedding": 1,
+        "link": 1, "imageUrl": 1, "price": 1,
+        "category": 1, "csv": 1
+    }
 
-    print("[DEBUG] Atlas Search Aggregation 실행")
+    # --- MongoDB에서 검색 ---
+    print("[DEBUG] MongoDB에서 검색")
     start = time.time()
-    products = list(product_collection.aggregate(pipeline))
+    products = list(product_collection.find(query_filter, projection))
     end = time.time()
-    print(f"[Atlas Search 조회 소요 시간]: {end - start:.2f}초")
+    print(f"[Mongo 조회 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
-
+    if not products:    
+        return []
 
     # --- 색상 필터링 적용 ---
     print("[DEBUG] 색상 필터링 적용 시작")

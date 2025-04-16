@@ -187,24 +187,46 @@ def extract_shape_from_caption(caption: str, db):
     return None, []
 
 # --- 공백 삽입 함수 ---
-def auto_insert_space(query: str, db) -> str:
-    color_doc = db["color_keywords"].find_one({"_id": "korean"})
-    shape_doc = db["shape_keywords"].find_one({"_id": "korean"})
-    category_doc = db["category_keywords"].find_one({"_id": "korean"})
+COLOR_KEYWORDS = []
+SHAPE_KEYWORDS = []
+CATEGORY_KEYWORDS = []
 
-    color_keywords = [item for sublist in color_doc["dict"].values() for item in sublist]
-    shape_keywords = [item for sublist in shape_doc["dict"].values() for item in sublist]
-    category_keywords = [item for sublist in category_doc["dict"].values() for item in sublist]
+def load_keyword_cache(db):
+    global COLOR_KEYWORDS, SHAPE_KEYWORDS, CATEGORY_KEYWORDS
+    COLOR_KEYWORDS = [item for sub in db["color_keywords"].find_one({"_id": "korean"})["dict"].values() for item in sub]
+    SHAPE_KEYWORDS = [item for sub in db["shape_keywords"].find_one({"_id": "korean"})["dict"].values() for item in sub]
+    CATEGORY_KEYWORDS = [item for sub in db["category_keywords"].find_one({"_id": "korean"})["dict"].values() for item in sub]
 
+def auto_insert_space(query: str) -> str:
     parts = []
     temp = query
-    for kw_list in [color_keywords, shape_keywords, category_keywords]:
-        for kw in sorted(kw_list, key=len, reverse=True):  # 긴 단어 우선
+    for kw_list in [COLOR_KEYWORDS, SHAPE_KEYWORDS, CATEGORY_KEYWORDS]:
+        for kw in sorted(kw_list, key=len, reverse=True):
             if kw in temp:
                 parts.append(kw)
-                temp = temp.replace(kw, " ", 1)  # 첫 등장만 제거
-                break  # 한 분류당 하나만 추출
-
-    parts.append(temp.replace(" ", ""))  # 남은 부분
+                temp = temp.replace(kw, " ", 1)
+                break
+    parts.append(temp.replace(" ", ""))
     return " ".join(filter(None, parts))
+
+# def auto_insert_space(query: str, db) -> str:
+#     color_doc = db["color_keywords"].find_one({"_id": "korean"})
+#     shape_doc = db["shape_keywords"].find_one({"_id": "korean"})
+#     category_doc = db["category_keywords"].find_one({"_id": "korean"})
+
+#     color_keywords = [item for sublist in color_doc["dict"].values() for item in sublist]
+#     shape_keywords = [item for sublist in shape_doc["dict"].values() for item in sublist]
+#     category_keywords = [item for sublist in category_doc["dict"].values() for item in sublist]
+
+#     parts = []
+#     temp = query
+#     for kw_list in [color_keywords, shape_keywords, category_keywords]:
+#         for kw in sorted(kw_list, key=len, reverse=True):  # 긴 단어 우선
+#             if kw in temp:
+#                 parts.append(kw)
+#                 temp = temp.replace(kw, " ", 1)  # 첫 등장만 제거
+#                 break  # 한 분류당 하나만 추출
+
+#     parts.append(temp.replace(" ", ""))  # 남은 부분
+#     return " ".join(filter(None, parts))
 
