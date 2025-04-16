@@ -6,15 +6,24 @@ from utils.dino_sam2_config import (
     GROUNDING_BOX_THRESHOLD, GROUNDING_DINO_CONFIG, GROUNDING_DINO_WEIGHTS,
     GROUNDING_TEXT_PROMPT, SAM2_CHECKPOINT, SAM2_MODEL_CONFIG, DEVICE, GROUNDING_TEXT_THRESHOLD
 )
-from api.detection.groundingdino.util.inference import load_model, predict
-from api.detection.sam2.sam2.build_sam import build_sam2
-from api.detection.sam2.sam2.sam2_image_predictor import SAM2ImagePredictor
-import torch
 from datetime import datetime
 from io import BytesIO
 import base64
 from typing import Annotated
+import sys
+import os
+import torch
+
 router = APIRouter()
+
+try:
+    from api.detection.groundingdino.util.inference import load_model, predict
+    from api.detection.sam2.sam2.build_sam import build_sam2
+    from api.detection.sam2.sam2.sam2_image_predictor import SAM2ImagePredictor
+    GROUNDINGDINO_AVAILABLE = True
+except ImportError:
+    print("Warning: GroundingDINO or SAM2 not installed. Object detection features will be disabled.")
+    GROUNDINGDINO_AVAILABLE = False
 
 def image_to_base64(pil_img: Image.Image, format="PNG") -> str:
     buffer = BytesIO()
@@ -37,9 +46,10 @@ def match_category(label, prompt_dict):
                 return category
     return "unknown"
 
-sam2_model = build_sam2(SAM2_MODEL_CONFIG, SAM2_CHECKPOINT, device=DEVICE)
-predictor = SAM2ImagePredictor(sam2_model)
-grounding_model = load_model(GROUNDING_DINO_CONFIG, GROUNDING_DINO_WEIGHTS,DEVICE)
+if GROUNDINGDINO_AVAILABLE:
+    sam2_model = build_sam2(SAM2_MODEL_CONFIG, SAM2_CHECKPOINT, device=DEVICE)
+    predictor = SAM2ImagePredictor(sam2_model)
+    grounding_model = load_model(GROUNDING_DINO_CONFIG, GROUNDING_DINO_WEIGHTS,DEVICE)
 
 @router.post("/detect_all_base64")
 async def detect_all_base64(
@@ -47,6 +57,11 @@ async def detect_all_base64(
     canvasWidth: int = Form(...),
     canvasHeight: int = Form(...)
     ):
+    if not GROUNDINGDINO_AVAILABLE:
+        raise HTTPException(
+            status_code=501,
+            detail="Object detection is not available. GroundingDINO package is not installed."
+        )
     start = datetime.now()
     print("파일 읽기 시도")
     print("📐 canvas:", canvasWidth, canvasHeight)
