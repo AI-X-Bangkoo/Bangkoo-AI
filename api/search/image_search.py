@@ -128,7 +128,8 @@ def image_search(contents: bytes, top_k=None):
     for doc in results_sorted:
         product_category = doc.get("category", "").strip().lower()
         # if target_category and target_category in product_category:
-        if target_category and product_category == target_category:
+        # if target_category and product_category == target_category:
+        if target_category and (target_category in product_category or product_category in target_category):
             filtered_results.append(doc)
     if not filtered_results:
         print("검색 결과 없음 (카테고리 필터 포함)")
@@ -146,7 +147,8 @@ def image_search(contents: bytes, top_k=None):
             for doc in results_sorted:
                 text = f"{doc.get('name', '')} {doc.get('description', '')} {doc.get('detail', '')}".lower()
                 # print(f"[DEBUG COLOR] {doc['name']} → {text}")
-                if any(s in text for s in color_synonyms):
+                # if any(s in text for s in color_synonyms):
+                if any(s in text or s in caption.lower() for s in color_synonyms):
                     filtered_color.append(doc)
             if filtered_color:
                 print(f"[COLOR] 색상 '{color_key}' 관련 제품만 필터링: {len(filtered_color)}개")
