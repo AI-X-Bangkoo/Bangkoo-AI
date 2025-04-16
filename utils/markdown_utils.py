@@ -1,5 +1,7 @@
 import re
 
+<<<<<<< HEAD
+=======
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-05
@@ -10,6 +12,7 @@ import re
 - JSON 구조가 깨졌을 경우 대응을 위해 사용
 """
 
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 def extract_json_from_markdown(text: str) -> str:
     """
     Gemini 응답에서 ```json ... ``` 또는 순수 JSON 배열만 추출합니다.

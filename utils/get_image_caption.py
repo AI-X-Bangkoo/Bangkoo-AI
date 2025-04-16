@@ -6,6 +6,8 @@ from mongo_manager import mongo_manager
 import numpy as np
 import torch
 
+<<<<<<< HEAD
+=======
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-09
@@ -18,6 +20,7 @@ import torch
 """
 
 
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 def get_image_caption_and_embedding(image: Image.Image):
     model = GenerativeModel("gemini-1.5-flash")
 
@@ -82,4 +85,8 @@ def get_image_embedding(image: Image.Image):
     with torch.no_grad():
         features = clip_model.get_image_features(**inputs)
         features = features / features.norm(dim=-1, keepdim=True)
+<<<<<<< HEAD
     return features.cpu().numpy()
+=======
+    return features.cpu().numpy()
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f

@@ -7,6 +7,8 @@ from dotenv import load_dotenv
 from model_loader import model_manager
 import numpy as np
 
+<<<<<<< HEAD
+=======
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-04
@@ -20,6 +22,7 @@ import numpy as np
 """
 
 
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")

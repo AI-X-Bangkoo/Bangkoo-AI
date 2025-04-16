@@ -43,7 +43,12 @@ if not mongo_manager.ready:
 db = mongo_manager.db
 product_collection = mongo_manager.products
 
+<<<<<<< HEAD
+# ===================================================================
+# 캐시 디렉터리 설정: OS 임시 디렉터리 하위에 room_style_cache 폴더 생성
+=======
 # --- 캐시 디렉터리 설정: OS 임시 디렉터리 하위에 room_style_cache 폴더 생성 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 CACHE_DIR = os.path.join(gettempdir(), "room_style_cache")
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -61,7 +66,11 @@ def cache_room_style(image_path: str, description: str) -> str:
         f.write(description)
     return description
 
+<<<<<<< HEAD
+# 비동기 Gemini 호출 (방 스타일 설명 생성)
+=======
 # --- 비동기 Gemini 호출 (방 스타일 설명 생성) ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 async def get_room_style_description_async(image_path: str) -> str:
     start_time = time.time()
     cached = get_cached_room_style(image_path)
@@ -94,7 +103,12 @@ async def get_room_style_description_async(image_path: str) -> str:
     print(f"[DEBUG] Gemini 방 스타일 설명 생성 완료 (소요시간: {time.time() - start_time:.2f}초)")
     return description
 
+<<<<<<< HEAD
+# ===================================================================
+# 재랭킹 함수 수정: 후보 제품 정보를 간략하게 요약하고 Gemini 호출을 비동기로 처리
+=======
 # --- 재랭킹 함수 수정: 후보 제품 정보를 간략하게 요약하고 Gemini 호출을 비동기로 처리 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 async def rerank_ai_recommendations_async(
     room_style: str,
     query: str,
@@ -175,6 +189,10 @@ async def rerank_ai_recommendations_async(
     print("[DEBUG] Gemini 재랭킹 응답:\n", response.text)
     return response.text.strip()
 
+<<<<<<< HEAD
+# ===================================================================
+=======
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
@@ -192,10 +210,17 @@ async def recommend_with_ai_agent(
     temp_file.close()
     print(f"[DEBUG] 임시 이미지 저장 완료: {temp_file.name}")
 
+<<<<<<< HEAD
+    # 비동기로 방 스타일 설명 생성 (여기서 캐싱 사용함)
+    room_style = await get_room_style_description_async(temp_file.name)
+
+    # DB 후보 제품 조회: 최대 1000개로 제한 -> 500개 테스트도 해봐야 할 듯? (속토 측면을 위해)
+=======
     # --- 비동기로 방 스타일 설명 생성 (여기서 캐싱 사용함) ---
     room_style = await get_room_style_description_async(temp_file.name)
 
     # --- DB 후보 제품 조회: 최대 1000개로 제한 -> 500개 테스트도 해봐야 할 듯? (속토 측면을 위해) ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     candidate_limit = 1000
     db_query_start = time.time()
     all_products = list(product_collection.find(
@@ -214,7 +239,11 @@ async def recommend_with_ai_agent(
     ).limit(candidate_limit))
     print(f"[DEBUG] 전체 제품 수 (최대 {candidate_limit}개): {len(all_products)} (DB 조회 소요시간: {time.time() - db_query_start:.2f}초)")
 
+<<<<<<< HEAD
+    # 가격 필터 적용
+=======
     # --- 가격 필터 적용 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     filtered_products = []
     for p in all_products:
         try:
@@ -226,19 +255,31 @@ async def recommend_with_ai_agent(
         filtered_products.append(p)
     print("[DEBUG] 가격 필터 후 카테고리 분포:", Counter([p.get("category", "없음") for p in filtered_products]))
 
+<<<<<<< HEAD
+    # 키워드 추출 및 카테고리 추론 (키워드 모듈에서 불러옴)
+=======
     # --- 키워드 추출 및 카테고리 추론 (키워드 모듈에서 불러옴) ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     extracted_keywords = extract_keywords_from_query(query)
     all_categories = list(set(p.get("category", "") for p in filtered_products if p.get("category")))
     category = guess_category_from_keywords(extracted_keywords, all_categories)
     print(f"[DEBUG] 추론된 카테고리: {category}")
 
+<<<<<<< HEAD
+    # 제품 필터링: 카테고리 필터 및 키워드 필터 적용
+=======
     # --- 제품 필터링: 카테고리 필터 및 키워드 필터 적용 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     category_filtered = filter_products_by_category(filtered_products, category)
     print(f"[DEBUG] 카테고리 필터 후: {len(category_filtered)}")
     keyword_filtered = filter_by_query_keywords(filtered_products, query)
     print(f"[DEBUG] 키워드 필터 후: {len(keyword_filtered)}")
 
+<<<<<<< HEAD
+    # 후보 선택: 카테고리 필터 결과 우선, 없으면 키워드 필터, 최종적으로 전체 일부 사용
+=======
     # --- 후보 선택: 카테고리 필터 결과 우선, 없으면 키워드 필터, 최종적으로 전체 일부 사용 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     if len(category_filtered) >= 5:
         candidates = category_filtered
     elif len(keyword_filtered) >= 5:
@@ -252,7 +293,11 @@ async def recommend_with_ai_agent(
         return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
     print(f"[DEBUG] 후보 선택 완료 - 후보 수: {len(candidates)}")
 
+<<<<<<< HEAD
+    # Gemini 재랭킹: 후보 제품 수를 후보군의 상위 100개로 제한하여 프롬프트 길이를 단축
+=======
     # --- gemini 재랭킹: 후보 제품 수를 후보군의 상위 100개로 제한하여 프롬프트 길이를 단축 ---
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
     rerank_start = time.time()
     rerank_result = await rerank_ai_recommendations_async(
         room_style,

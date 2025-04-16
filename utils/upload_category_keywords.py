@@ -2,6 +2,8 @@ import os
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
+<<<<<<< HEAD
+=======
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-04
@@ -12,6 +14,7 @@ from dotenv import load_dotenv
 - 검색 필터링이나 Gemini 분류 기준으로 활용
 """
 
+>>>>>>> eaa1fc8391c3bb9030bc37fb618076e66a28c39f
 load_dotenv()
 
 MONGO_URI = os.getenv("MONGO_URI")
