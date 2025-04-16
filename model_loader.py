@@ -58,10 +58,10 @@ class ModelManager:
 
         for filename, url in files.items():
             file_path = os.path.join(download_dir, filename)
-            print(f"⚠️ 다운로드 시도: {filename}")
+            # print(f"[DEBUG] 다운로드 시도: {filename}")
 
             if os.path.exists(file_path):
-                print(f"✅ {filename} 이미 존재합니다. 다운로드 생략.")
+                # print(f"[DEBUG] {filename} 이미 존재합니다. 다운로드 생략.")
                 continue  # 이미 있으면 스킵
 
             response = requests.get(url, stream=True)
@@ -69,9 +69,9 @@ class ModelManager:
                 with open(file_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
-                print(f"✅ 다운로드 완료: {file_path}")
+                print(f"[DEBUG] 다운로드 완료: {file_path}")
             else:
-                print(f"❌ 다운로드 실패: {filename} ({response.status_code})")
+                print(f"[DEBUG] 다운로드 실패: {filename} ({response.status_code})")
         
         print("[9] All models loaded")
         self.ready = True
