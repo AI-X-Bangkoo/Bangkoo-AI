@@ -64,10 +64,9 @@ def call_gemini_llm_query_correction(query):
 
 def call_gemini_llm_attribute_extraction(query):
     prompt = (
-        f"다음 상품 검색 쿼리에서 제품의 속성을 추출해 주세요. "
-        f"속성은 색상(color), 형태(shape), 카테고리(category)로 구분하며, "
-        f"속성이 명확하지 않으면 null로 처리합니다. 쿼리: '{query}'\n출력 예: " 
-        f'{{"color": "빨간색", "shape": "동그란", "category": "table"}}'
+        f"다음 상품 검색 쿼리에서 제품의 속성을 추출해 주세요. 속성은 색상(color), 형태(shape), 카테고리(category)로 구분하며, "
+        f"쿼리가 단일 키워드라면 해당 키워드를 카테고리로 간주하여 반환해 주세요.\n"
+        f"쿼리: '{query}'\n출력 예: {{\"color\": null, \"shape\": null, \"category\": \"조명\"}}"
     )
     response = model.generate_content(prompt)
     try:
@@ -419,21 +418,33 @@ def hybrid_search(query, top_k=None):
     expanded_queries = expand_query_using_llm(refined_query)
     print(f"[DEBUG] 확장된 쿼리: {expanded_queries}")
     
+    start = time.time()
     bm25_scores = bm25_search(refined_query, products)
+    end = time.time()
+    print(f"[Atlas BM25 점수 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] BM25 점수: {bm25_scores}")
     
+    start = time.time()
     vector_scores = vector_similarity_search(expanded_queries, products)
+    end = time.time()
+    print(f"[Atlas 벡터 유사도 점수 소요 시간]: {end - start:.2f}초")
     if vector_scores is None:
         print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
         return []
     print(f"[DEBUG] 벡터 유사도 점수: {vector_scores}")
     
+    start = time.time()
     llm_bonus = compute_llm_bonus(products, attributes)
+    end = time.time()
+    print(f"[Atlas LLM 보너스 점수 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] LLM 보너스 점수: {llm_bonus}")
     
     # 10. 기본 점수 결합
     weights = {"vector": 0.5, "bm25": 0.3, "llm": 0.2}
+    start = time.time()
     final_scores = combine_scores(vector_scores, bm25_scores, llm_bonus, weights)
+    end = time.time()
+    print(f"[Atlas 최종 결합 점수 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] 최종 결합 점수: {final_scores}")
 
     # 11. 임계치(threshold) 미만인 후보 제외하기
