@@ -7,6 +7,9 @@ from mongo_manager import mongo_manager
 from typing import Optional
 import re
 
+bm25_index = None
+id_to_idx = {}
+
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-11
@@ -229,4 +232,3 @@ def auto_insert_space(query: str) -> str:
 
 #     parts.append(temp.replace(" ", ""))  # 남은 부분
 #     return " ".join(filter(None, parts))
-

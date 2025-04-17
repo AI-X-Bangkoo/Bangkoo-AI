@@ -43,7 +43,9 @@ if not mongo_manager.ready:
 db = mongo_manager.db
 product_collection = mongo_manager.products
 
-# --- 캐시 디렉터리 설정: OS 임시 디렉터리 하위에 room_style_cache 폴더 생성 ---
+# =============================================================================
+# 캐시 디렉터리 설정: OS 임시 디렉터리 하위에 room_style_cache 폴더 생성
+# =============================================================================
 CACHE_DIR = os.path.join(gettempdir(), "room_style_cache")
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -61,7 +63,9 @@ def cache_room_style(image_path: str, description: str) -> str:
         f.write(description)
     return description
 
-# --- 비동기 Gemini 호출 (방 스타일 설명 생성) ---
+# =============================================================================
+# 비동기 Gemini 호출 (방 스타일 설명 생성)
+# =============================================================================
 async def get_room_style_description_async(image_path: str) -> str:
     start_time = time.time()
     cached = get_cached_room_style(image_path)
@@ -94,7 +98,9 @@ async def get_room_style_description_async(image_path: str) -> str:
     print(f"[DEBUG] Gemini 방 스타일 설명 생성 완료 (소요시간: {time.time() - start_time:.2f}초)")
     return description
 
-# --- 재랭킹 함수 수정: 후보 제품 정보를 간략하게 요약하고 Gemini 호출을 비동기로 처리 ---
+# =============================================================================
+# 재랭킹 함수: 후보 제품 정보를 간략하게 요약하고 Gemini 호출을 비동기로 처리
+# =============================================================================
 async def rerank_ai_recommendations_async(
     room_style: str,
     query: str,
@@ -175,6 +181,9 @@ async def rerank_ai_recommendations_async(
     print("[DEBUG] Gemini 재랭킹 응답:\n", response.text)
     return response.text.strip()
 
+# =============================================================================
+# 필터를 가지고 제품 추천 함수
+# =============================================================================
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,

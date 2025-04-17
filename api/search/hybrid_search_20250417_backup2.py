@@ -130,6 +130,34 @@ def atlas_search(refined_query, attributes):
     if attributes.get("category"):
         query_filter["category"] = attributes["category"]
 
+    # pipeline = [
+    #     {
+    #         "$search": {
+    #             "index": "search_index",
+    #             "text": {
+    #                 "query": refined_query,
+    #                 "path": ["name", "description", "detail"]
+    #             }
+    #         }
+    #     },
+    #     {
+    #         "$project": {
+    #             "_id": 0,
+    #             "name": 1,
+    #             "description": 1,
+    #             "detail": 1,
+    #             "imageEmbedding": 1,
+    #             "textEmbedding": 1,
+    #             "link": 1,
+    #             "imageUrl": 1,
+    #             "price": 1,
+    #             "category": 1,
+    #             "csv": 1,
+    #             "searchScore": {"$meta": "searchScore"}
+    #         }
+    #     },
+    #     {"$limit": 200}
+    # ]
     pipeline = [
         {
             "$search": {
@@ -474,10 +502,7 @@ def hybrid_search(query, top_k=None):
     if high_score_indices.size == 0:
         print("[DEBUG] 모든 후보의 점수가 낮습니다. 임계치를 낮춰보세요.")
         high_score_indices = np.arange(len(final_scores))
-    start = time.time()
     filtered_final_scores = final_scores[high_score_indices]
-    end = time.time()
-    print(f"[Atlas 임계치 미만 후보 제외 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] 임계치 {THRESHOLD} 이상인 후보 인덱스: {high_score_indices}")
 
     # high_score_indices를 사용해 원래 제품 리스트에서 후보들(filtered_products) 추출
