@@ -1,10 +1,17 @@
 import torch
 from transformers import AutoModel, AutoProcessor, AutoTokenizer
 from sentence_transformers import SentenceTransformer
-from PIL import Image
-from io import BytesIO
+from utils.dino_sam2_config import GROUNDING_DINO_CONFIG,GROUNDING_DINO_WEIGHTS,SAM2_CHECKPOINT,SAM2_MODEL_CONFIG
 import requests
 import os
+
+
+"""
+    최초 작성자: 김동규
+    최초 작성일: 2025-04-07
+    수정일: 2025-04-11 (김범석) (sam2,dino model 추가)
+    모델 및 DB 초기화를 lazy-load 또는 startup 이벤트에서 처리
+"""
 
 class ModelManager:
     def __init__(self):
@@ -29,7 +36,7 @@ class ModelManager:
         print("[3] CLIP model ready.")
 
         print("[4] Loading processor...")
-        self.clip_processor = AutoProcessor.from_pretrained("jinaai/jina-clip-v2", use_fast=True, trust_remote_code=True)
+        self.clip_processor = AutoProcessor.from_pretrained("jinaai/jina-clip-v2", trust_remote_code=True)
         print("[5] Processor ready.")
 
         print("[6] Loading SentenceTransformer...")
@@ -37,19 +44,24 @@ class ModelManager:
         print("[7] Loading AutoTokenizer...")
         self.text_tokenizer = AutoTokenizer.from_pretrained("intfloat/e5-base-v2")  
         print("[8] Loading Grounding Dino & Sam2 model...")
+        # file_id = '1B0UPAEb4yhmGNx6jPyxoQtnVUcU6gHw-'
+        # url = f"https://drive.google.com/uc?id={file_id}"
         download_dir = "download_models"
         os.makedirs(download_dir, exist_ok=True)
+        # gdown.download_folder(url,quiet=False,use_cookies=False)
         files = {
-            "sam2.1_hiera_large.pt": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
-            "sam2.1_hiera_large.yaml": "https://raw.githubusercontent.com/facebookresearch/sam2/main/sam2/configs/sam2.1/sam2.1_hiera_l.yaml",
-            "groundingdino_swint_ogc.pth": "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth",
-            "GroundingDINO_SwinT_OGC.py": "https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+        "sam2.1_hiera_large.pt": "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt",
+        "sam2.1_hiera_large.yaml": "https://raw.githubusercontent.com/facebookresearch/sam2/main/sam2/configs/sam2.1/sam2.1_hiera_l.yaml",
+        "groundingdino_swint_ogc.pth": "https://github.com/IDEA-Research/GroundingDINO/releases/download/v0.1.0-alpha/groundingdino_swint_ogc.pth",
+        "GroundingDINO_SwinT_OGC.py": "https://raw.githubusercontent.com/IDEA-Research/GroundingDINO/main/groundingdino/config/GroundingDINO_SwinT_OGC.py"
         }
 
         for filename, url in files.items():
             file_path = os.path.join(download_dir, filename)
+            # print(f"[DEBUG] 다운로드 시도: {filename}")
 
             if os.path.exists(file_path):
+                # print(f"[DEBUG] {filename} 이미 존재합니다. 다운로드 생략.")
                 continue  # 이미 있으면 스킵
 
             response = requests.get(url, stream=True)
@@ -63,31 +75,6 @@ class ModelManager:
         
         print("[9] All models loaded")
         self.ready = True
-    
-    def encode_image_from_url(self, image_url):
-        try:
-            response = requests.get(image_url)
-            print(f"[DEBUG] 이미지 URL 확인: {image_url}")
-
-            if response.status_code != 200:
-                print(f"[오류] 이미지 요청 실패: {response.status_code} - {image_url}")
-                return None
-
-            img = Image.open(BytesIO(response.content)).convert("RGB")  # RGB 변환으로 에러 방지
-            print(f"[DEBUG] 이미지 로드 성공: {image_url}")
-
-            # 이미지를 모델에 맞게 전처리
-            inputs = self.clip_processor(images=img, return_tensors="pt").to(self.device)
-
-            # 이미지 임베딩 생성
-            with torch.no_grad():
-                image_embedding = self.clip_model.get_image_features(**inputs)
-
-            return image_embedding.cpu().numpy()  # numpy 배열로 변환 후 반환
-
-        except Exception as e:
-            print(f"[오류] 이미지 임베딩 실패: {e}")
-            return None
-
         
 model_manager = ModelManager()
+
