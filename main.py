@@ -34,7 +34,6 @@ async def startup_event():
     asyncio.create_task(async_model_load())
     print("startup_event 끝")
 
-
 app.include_router(recommend_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 app.include_router(recommend_or_search_router, prefix="/api")

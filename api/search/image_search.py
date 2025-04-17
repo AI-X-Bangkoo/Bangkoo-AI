@@ -40,6 +40,9 @@ load_dotenv()
 # fusion 네트워크 인스턴스 생성
 fusion_net = FusionNetwork(1024, 768, 1792)
 
+# =============================================================================
+# 벡터 서치 aggregate
+# =============================================================================
 def perform_vector_search(query_vector: list, top_k=50):
     collection = mongo_manager.products
     try:
@@ -77,6 +80,9 @@ def perform_vector_search(query_vector: list, top_k=50):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"벡터 검색 실패: {str(e)}")
 
+# =============================================================================
+# 이미지 디코딩 및 이미지 기반 유사도 검색(Fusion 네트워크 적용)
+# =============================================================================
 def image_search(contents: bytes, top_k=None):
     print("[5-1] 이미지 디코딩 시작")
     if not model_manager.ready:
