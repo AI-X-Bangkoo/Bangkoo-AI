@@ -1,0 +1,18 @@
+import csv
+
+header = ["name", "description", "detail", "price", "link", "imageUrl", "model3dUrl", "csv"]
+rows = [
+    ["Wooden Chair", "Comfortable wooden chair with a cushion", "Wooden frame with soft cushion", "49.99", "http://example.com/chair", "http://example.com/chair.jpg", "http://example.com/chair_3d_model", "http://example.com/csv/chair.csv"],
+    ["Metal Desk", "Sturdy metal desk", "Desk with metal legs and a wooden top", "79.99", "http://example.com/desk", "http://example.com/desk.jpg", "http://example.com/desk_3d_model", "http://example.com/csv/desk.csv"],
+    ["Sofa Set", "Modern sofa set with 3 pieces", "Soft and comfortable 3-piece sofa set", "299.99", "http://example.com/sofa", "http://example.com/sofa.jpg", "http://example.com/sofa_3d_model", "http://example.com/csv/sofa.csv"],
+    ["Coffee Table", "Stylish wooden coffee table", "Wooden table with a glass top", "99.99", "http://example.com/table", "http://example.com/table.jpg", "http://example.com/table_3d_model", "http://example.com/csv/table.csv"],
+    ["Bookshelf", "Wooden bookshelf with multiple shelves", "Bookshelf with 5 shelves", "119.99", "http://example.com/bookshelf", "http://example.com/bookshelf.jpg", "http://example.com/bookshelf_3d_model", "http://example.com/csv/bookshelf.csv"]
+]
+
+# CSV 파일로 저장
+with open('test_products.csv', mode='w', newline='') as file:
+    writer = csv.writer(file)
+    writer.writerow(header)
+    writer.writerows(rows)
+
+print("CSV 파일이 'test_products.csv'로 저장되었습니다.")
