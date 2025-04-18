@@ -4,6 +4,7 @@ from typing import List, Optional
 from api.productsEmbedding.upload_products_embedding import upload_products
 import traceback
 
+
 """
 최초 작성자: 김병훈
 최초 작성일: 2025-04-17
@@ -39,3 +40,4 @@ async def embedding_router(products: List[Product]):
     except Exception as e:
         traceback.print_exc()
         raise HTTPException(status_code = 500, detail = f"임베딩 처리중 오류 발생: {e}")
+    
