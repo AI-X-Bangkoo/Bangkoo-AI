@@ -15,7 +15,6 @@ from tqdm import tqdm
 - 결합된 벡터도 정규화 후 float32 배열 형태로 MongoDB에 저장
 - 벡터 검색(Index type: float32 array)에 사용 가능
 """
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mongo_manager import mongo_manager
 
