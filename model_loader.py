@@ -9,6 +9,17 @@ import numpy as np
 import pymongo
 from pymongo import MongoClient
 
+"""
+    최초 작성자: 김동규
+    최초 작성일: 2025-04-07
+    수정일: 2025-04-11 (김범석) (sam2,dino model 추가)
+    모델 및 DB 초기화를 lazy-load 또는 startup 이벤트에서 처리
+    수정일: 2025-04-18 (김병훈)
+    새로 추가돼는 데이터의 이미지, 텍스트 임베딩 작업 수정 
+"""
+
+
+
 class ModelManager:
     def __init__(self):
         # PyTorch 버전 및 CUDA 가능 여부 출력
