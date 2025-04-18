@@ -9,7 +9,6 @@ from dotenv import load_dotenv
 from model_loader import model_manager
 import torch
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 
 import google.generativeai as genai
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -242,29 +241,19 @@ def atlas_search(refined_query, attributes):
 # =============================================================================
 # BM25 기반 서치 (형태소 분석 및 BM25Okapi 사용)
 # =============================================================================
-def get_cached_query_tokens(query: str):
-    key = f"query_tokens:{query}"
-    cached = redis_client.get(key)
-    if cached:
-        return json.loads(cached)
-    tokens = tokenize_clean(query)
-    redis_client.setex(key, 60 * 60 * 24, json.dumps(tokens))  # 24시간 저장
-    return tokens
-
-
 def bm25_search(refined_query, products):
-    def tokenize_product(product):
-        tokens = product.get("indexedTokens")
-        if not tokens:
-            print("[WARN] indexedTokens 없음:", product.get("name"))
-            text = f"{product.get('name', '')} {product.get('description', '')} {product.get('detail', '')}".lower()
-            tokens = tokenize_clean(text)
-        return tokens
+    corpus = []
+    # 제품 텍스트 캐싱: 한 번 소문자로 변환한 텍스트를 저장
+    product_texts = []
+    for product in products:
+        text = f"{product.get('name', '')} {product.get('description', '')} {product.get('detail', '')}".lower()
+        product_texts.append(text)
+        # tokens = okt.morphs(text)
+        tokens = tokenize_clean(text)
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        corpus = list(executor.map(tokenize_product, products))
-
-    query_tokens = get_cached_query_tokens(refined_query)
+        corpus.append(tokens)
+    # query_tokens = okt.morphs(refined_query.lower())
+    query_tokens = tokenize_clean(refined_query)
     bm25 = BM25Okapi(corpus)
     scores = np.array(bm25.get_scores(query_tokens))
     if scores.max() > 0:
@@ -277,41 +266,31 @@ def bm25_search(refined_query, products):
 # =============================================================================
 def vector_similarity_search(expanded_queries, products):
     device = model_manager.device
-
-    # NumPy → torch.tensor → to(device) 순서로 해야 함
-    image_embeddings = torch.tensor(
-        np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    text_embeddings = torch.tensor(
-        np.array([p["textEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    img_emb = image_embeddings
-    txt_emb = text_embeddings
-
+    # 이미 배열 형태로 만들어둔 임베딩 사용
+    image_embeddings = np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
+    text_embeddings = np.array([p["textEmbedding"] for p in products], dtype=np.float32)
+    
+    img_emb = torch.tensor(image_embeddings)  # .to('cuda') 로 GPU 할당 고려
+    txt_emb = torch.tensor(text_embeddings)
+    
     query_scores_list = []
     for q in expanded_queries:
         try:
-            e5_embed = get_text_embedding(q)
+            e5_embed = get_text_embedding(q)  # np.array 반환해서
             clip_embed = get_clip_text_embedding(q)
-
-            e5_embed = torch.tensor(e5_embed).to(device)
-            clip_embed = torch.tensor(clip_embed).to(device)
-
+            e5_embed = torch.tensor(e5_embed)  # .to('cuda')
+            clip_embed = torch.tensor(clip_embed)
+            # 텐서 사용하면 GPU 가속 가능 고려
             sim_text = torch.nn.functional.cosine_similarity(e5_embed, txt_emb).cpu().numpy()
             sim_image = torch.nn.functional.cosine_similarity(clip_embed, img_emb).cpu().numpy()
-
             score = 0.6 * sim_text + 0.4 * sim_image
             query_scores_list.append(score)
         except Exception as e:
             print(f"[SKIP] '{q}' 임베딩 실패 → {e}")
-
     if not query_scores_list:
         return None
     vector_scores = np.maximum.reduce(query_scores_list)
     return vector_scores
-
 
 
 # =============================================================================
@@ -434,7 +413,6 @@ def adjust_scores_with_feedback(candidates, base_scores, feedback_weight):
     return adjusted_scores
 
 def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes):
-    start = time.time()
     variant_weights = get_reranking_weights()
     print(f"[A/B Variant] 적용된 가중치: {variant_weights}")
     
@@ -445,8 +423,6 @@ def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes)
     
     indices = np.argsort(adjusted_scores)[::-1]
     re_ranked = [candidates[i] for i in indices]
-    end = time.time()
-    print(f"피드백 보정 및 속성 보정 적용 소요 시간: {end - start:.2f}초")
     return re_ranked
 
 # =============================================================================
@@ -529,22 +505,12 @@ def hybrid_search(query, top_k=None):
     print(f"[Atlas 임계치 미만 후보 제외 소요 시간]: {end - start:.2f}초")
     print(f"[DEBUG] 임계치 {THRESHOLD} 이상인 후보 인덱스: {high_score_indices}")
 
-    start = time.time()
     # high_score_indices를 사용해 원래 제품 리스트에서 후보들(filtered_products) 추출
     filtered_products = [products[i] for i in high_score_indices]
     # 필터링된 후보들의 점수(filtered_final_scores) 기준 내림차순 정렬 (인덱스 재정렬)
     sorted_filtered_indices = np.argsort(filtered_final_scores)[::-1]
-    end = time.time()
-    print(f"[후보 추출 및 정렬 소요 시간]: {end - start:.2f}초")
-    
+
     # 12. 상위 후보 추출 및 인상 로그 기록 (임계치 적용 후)
-    def save_impressions(candidates):
-        def save(candidate):
-            log_impression(candidate)
-        
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            executor.map(save, candidates)
-    start = time.time()
     candidates = []
     limit = top_k if top_k is not None else len(filtered_products)
     for idx in sorted_filtered_indices[:limit]:
@@ -562,12 +528,9 @@ def hybrid_search(query, top_k=None):
             "유사도": float(filtered_final_scores[idx]),
             "추천이유": f"쿼리 '{refined_query}' 와 결합 유사도 {float(filtered_final_scores[idx]):.3f}"
         }
+        log_impression(candidate)
         candidates.append(candidate)
 
-    # 병렬로 로그 저장
-    save_impressions(candidates)
-    end = time.time()
-    print(f"[상위 후보 추출 및 인상 로그 소요 시간]: {end - start:.2f}초")
 
     base_scores = np.array([cand["유사도"] for cand in candidates])
     re_ranked_candidates = re_rank_candidates_with_feedback(refined_query, candidates, base_scores, attributes)
