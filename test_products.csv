@@ -1,6 +1,6 @@
-name,description,detail,price,link,imageUrl,model3dUrl,csv
-Wooden Chair,Comfortable wooden chair with a cushion,Wooden frame with soft cushion,49.99,http://example.com/chair,http://example.com/chair.jpg,http://example.com/chair_3d_model,http://example.com/csv/chair.csv
-Metal Desk,Sturdy metal desk,Desk with metal legs and a wooden top,79.99,http://example.com/desk,http://example.com/desk.jpg,http://example.com/desk_3d_model,http://example.com/csv/desk.csv
-Sofa Set,Modern sofa set with 3 pieces,Soft and comfortable 3-piece sofa set,299.99,http://example.com/sofa,http://example.com/sofa.jpg,http://example.com/sofa_3d_model,http://example.com/csv/sofa.csv
-Coffee Table,Stylish wooden coffee table,Wooden table with a glass top,99.99,http://example.com/table,http://example.com/table.jpg,http://example.com/table_3d_model,http://example.com/csv/table.csv
-Bookshelf,Wooden bookshelf with multiple shelves,Bookshelf with 5 shelves,119.99,http://example.com/bookshelf,http://example.com/bookshelf.jpg,http://example.com/bookshelf_3d_model,http://example.com/csv/bookshelf.csv
+id,name,description,detail,imageUrl
+1,Chair,Comfortable wooden chair with a soft cushion,Ideal for living rooms and offices,https://images.unsplash.com/photo-1582582494700-761ba1f15c8e
+2,Desk,Modern desk with sleek design and storage space,Perfect for home offices,https://images.unsplash.com/photo-1559056199-641a0ac8b55f
+3,Sofa,Luxurious leather sofa with spacious seating,Great for relaxing and hosting guests,https://images.unsplash.com/photo-1586023492125-27b2c045efd7
+4,Table,Wooden dining table with four matching chairs,Perfect for family meals,https://images.unsplash.com/photo-1598300053835-bd0d7f42cb00
+5,Bookshelf,Tall bookshelf with adjustable shelves,Ideal for organizing books and decor,https://images.unsplash.com/photo-1600585154340-be6161a56a0c

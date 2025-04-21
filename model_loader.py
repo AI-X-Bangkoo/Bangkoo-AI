@@ -109,19 +109,6 @@ class ModelManager:
         print("[9] All models loaded")
         self.ready = True
 
-        # MongoDB 연결 설정
-        self.connect_to_mongo()
-
-    def connect_to_mongo(self):
-        """MongoDB 연결 및 DB/컬렉션 설정"""
-        try:
-            print("[DEBUG] MongoDB 연결 시도...")
-            self.mongo_client = MongoClient("mongodb://localhost:27017/")  # MongoDB 연결 URL
-            self.db = self.mongo_client["my_database"]
-            self.collection = self.db["my_collection"]
-            print("[DEBUG] MongoDB 연결 성공!")
-        except Exception as e:
-            print(f"[오류] MongoDB 연결 실패: {e}")
 
     def encode_image_from_url(self, image_url):
         """
@@ -181,32 +168,18 @@ class ModelManager:
             print(f"[오류] 텍스트 임베딩 실패: {e}")
             return None
 
-    def save_to_mongo(self, data):
-        """
-        MongoDB에 데이터를 저장하는 함수
-        :param data: dict 형태의 데이터
-        :return: 저장된 데이터의 ID
-        """
-        try:
-            print("[DEBUG] MongoDB에 데이터 저장 중...")
-            result = self.collection.insert_one(data)
-            print(f"[DEBUG] 데이터 저장 완료. 저장된 _id: {result.inserted_id}")
-            return result.inserted_id
-        except Exception as e:
-            print(f"[오류] MongoDB 저장 실패: {e}")
-            return None
+
     
 
 # 클래스 인스턴스 생성
 model_manager = ModelManager()
 
-# 예시: 텍스트 임베딩 후 MongoDB에 저장
-text = "This is an example text for embedding."
-embedding = model_manager.encode_text(text)
+# ✅ 예시: 텍스트 임베딩만 수행하고, MongoDB 저장은 하지 않음
+if __name__ == "__main__":
+    text = "This is an example text for embedding."
+    embedding = model_manager.encode_text(text)
 
-if embedding is not None:
-    data = {
-        "text": text,
-        "embedding": embedding.tolist()  # numpy array를 리스트로 변환하여 저장
-    }
-    model_manager.save_to_mongo(data)
+    if embedding is not None:
+        print("[결과] 텍스트 임베딩 벡터 (일부):", embedding[:5])  # 일부 출력
+    else:
+        print("[오류] 임베딩 실패")
