@@ -537,14 +537,7 @@ def hybrid_search(query, top_k=None):
     end = time.time()
     print(f"[후보 추출 및 정렬 소요 시간]: {end - start:.2f}초")
     
-    # 12. 상위 후보 추출 및 인상 로그 기록 (임계치 적용 후)
-    def save_impressions(candidates):
-        def save(candidate):
-            log_impression(candidate)
-        
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            executor.map(save, candidates)
-    start = time.time()
+    # 12. 상위 후보 추출 (인상 로그 로직 제거)
     candidates = []
     limit = top_k if top_k is not None else len(filtered_products)
     for idx in sorted_filtered_indices[:limit]:
@@ -564,14 +557,12 @@ def hybrid_search(query, top_k=None):
         }
         candidates.append(candidate)
 
-    # 병렬로 로그 저장
-    save_impressions(candidates)
-    end = time.time()
-    print(f"[상위 후보 추출 및 인상 로그 소요 시간]: {end - start:.2f}초")
-
+    # 13. (이제 로그는 Java 백엔드가 담당)
     base_scores = np.array([cand["유사도"] for cand in candidates])
-    re_ranked_candidates = re_rank_candidates_with_feedback(refined_query, candidates, base_scores, attributes)
-    
+    re_ranked_candidates = re_rank_candidates_with_feedback(
+        refined_query, candidates, base_scores, attributes
+    )
+
     end1 = time.time()
     print(f"[검색 총 소요 시간]: {end1 - start1:.2f}초")
     return re_ranked_candidates
