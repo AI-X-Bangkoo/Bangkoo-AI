@@ -13,7 +13,8 @@ from functools import lru_cache
 
 import google.generativeai as genai
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+# model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("models/gemini-2.0-flash")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -276,40 +277,42 @@ def bm25_search(refined_query, products):
 # 벡터 유사도 서치 (동적 확장 쿼리별 임베딩 기반 점수 계산)
 # =============================================================================
 def vector_similarity_search(expanded_queries, products):
-    device = model_manager.device
+    """
+    CPU 전용 벡터 유사도 계산
+    - expanded_queries: List[str]
+    - products: List[dict], 각 dict에 'textEmbedding' (shape D_txt)과 'imageEmbedding' (shape D_img)이 numpy array로 들어있어야 함
+    """
+    # 1) 제품 임베딩 행렬 쌓기: text_matrix.shape = (N, D_txt), image_matrix.shape = (N, D_img)
+    text_matrix  = np.stack([p["textEmbedding"]  for p in products], axis=0)
+    image_matrix = np.stack([p["imageEmbedding"] for p in products], axis=0)
 
-    # NumPy → torch.tensor → to(device) 순서로 해야 함
-    image_embeddings = torch.tensor(
-        np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    text_embeddings = torch.tensor(
-        np.array([p["textEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    img_emb = image_embeddings
-    txt_emb = text_embeddings
-
-    query_scores_list = []
+    # 2) 쿼리별 유사도 계산
+    scores_list = []
     for q in expanded_queries:
         try:
-            e5_embed = get_text_embedding(q)
-            clip_embed = get_clip_text_embedding(q)
+            e5_vec   = get_text_embedding(q)    # (1, D_txt) 혹은 (D_txt,)
+            clip_vec = get_clip_text_embedding(q)  # (1, D_img) 혹은 (D_img,)
 
-            e5_embed = torch.tensor(e5_embed).to(device)
-            clip_embed = torch.tensor(clip_embed).to(device)
+            # 1차원 반환 시 2차원으로 바꿔주기
+            if e5_vec.ndim == 1:
+                e5_vec = e5_vec.reshape(1, -1)
+            if clip_vec.ndim == 1:
+                clip_vec = clip_vec.reshape(1, -1)
 
-            sim_text = torch.nn.functional.cosine_similarity(e5_embed, txt_emb).cpu().numpy()
-            sim_image = torch.nn.functional.cosine_similarity(clip_embed, img_emb).cpu().numpy()
+            # cosine_similarity → (1, N) 배열 반환
+            sim_text  = cosine_similarity(e5_vec,  text_matrix).flatten()
+            sim_image = cosine_similarity(clip_vec, image_matrix).flatten()
 
+            # 가중합
             score = 0.6 * sim_text + 0.4 * sim_image
-            query_scores_list.append(score)
+            scores_list.append(score)
         except Exception as e:
             print(f"[SKIP] '{q}' 임베딩 실패 → {e}")
 
-    if not query_scores_list:
+    # 3) 쿼리별 스코어 중 최댓값 취하기
+    if not scores_list:
         return None
-    vector_scores = np.maximum.reduce(query_scores_list)
+    vector_scores = np.maximum.reduce(scores_list)
     return vector_scores
 
 
@@ -488,20 +491,25 @@ def hybrid_search(query, top_k=None):
     
     print(f"[DEBUG] 확장된 쿼리: {expanded_queries}")
     
-    start = time.time()
-    bm25_scores = bm25_search(refined_query, products)
-    end = time.time()
-    print(f"[Atlas BM25 점수 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] BM25 점수: {bm25_scores}")
-    
-    start = time.time()
-    vector_scores = vector_similarity_search(expanded_queries, products)
-    end = time.time()
-    print(f"[Atlas 벡터 유사도 점수 소요 시간]: {end - start:.2f}초")
+     # 2) BM25와 벡터 유사도를 병렬로 실행
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_bm25  = executor.submit(bm25_search, refined_query, products)
+        future_vec   = executor.submit(vector_similarity_search, expanded_queries, products)
+
+        # 두 작업이 다 끝날 때까지 기다림
+        bm25_scores   = future_bm25.result()
+        vector_scores = future_vec.result()
+
+    # 실패 처리
     if vector_scores is None:
         print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
         return []
-    print(f"[DEBUG] 벡터 유사도 점수: {vector_scores}")
+    if bm25_scores is None:
+        # BM25가 실패해도 0점 배열로 대체
+        bm25_scores = np.zeros_like(vector_scores)
+
+    print(f"[DEBUG] BM25 점수:   {bm25_scores}")
+    print(f"[DEBUG] 벡터 점수: {vector_scores}")
     
     start = time.time()
     llm_bonus = compute_llm_bonus(products, attributes)
