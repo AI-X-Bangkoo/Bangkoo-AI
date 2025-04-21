@@ -1,0 +1,3 @@
+[submodule "api/detection/api/detection/GroundingDINO"]
+	path = api/detection/api/detection/GroundingDINO
+	url = https://github.com/IDEA-Research/GroundingDINO.git
