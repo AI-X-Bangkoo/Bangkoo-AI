@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import redis
 import json
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -31,11 +30,11 @@ from utils.query_utils import (
     auto_insert_space  # fallback 용으로 남겨둠
 )
 from utils.visual_color_utils import get_color_keywords_from_db
+from utils.markdown_utils import extract_json_from_markdown
 
 from rank_bm25 import BM25Okapi
 from konlpy.tag import Okt
 okt = Okt()
-redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 """
 최초 작성자: 김동규
@@ -74,13 +73,6 @@ def tokenize_clean(text):
     tokens = okt.morphs(text.lower())
     return [t for t in tokens if t not in STOPWORDS]
 
-def get_cached_gemini_result(query: str):
-    cached = redis_client.get(f"gemini_cache:{query}")
-    return json.loads(cached) if cached else None
-
-def cache_gemini_result(query: str, result: dict):
-    redis_client.setex(f"gemini_cache:{query}", 60 * 60 * 24, json.dumps(result))
-
 # ——————————————————————————————————————
 # 전역 BM25 모델 캐시
 # ——————————————————————————————————————
@@ -91,7 +83,7 @@ _all_products = list(mongo_manager.products.find(
 ))
 # 2) 각 제품별 토큰 리스트
 _global_corpus_tokens = []
-#    link → corpus index 맵 (장차 subset 매핑용)
+#    link → corpus index 맵 (추후 subset 매핑용)
 _global_link2idx = {}
 for idx, doc in enumerate(_all_products):
     toks = doc.get("indexedTokens")
@@ -106,7 +98,7 @@ for idx, doc in enumerate(_all_products):
 _global_bm25 = BM25Okapi(_global_corpus_tokens)
 
 # =============================================================================
-# Gemini LLM API 호출 함수 (Gemini 1.5-flash 사용)
+# Gemini LLM API 호출 함수 (Gemini 2.0-flash 사용)
 # =============================================================================
 def call_gemini_llm_all_in_one(query: str) -> dict:
     prompt = f"""
@@ -116,7 +108,7 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
 2. **속성(attributes)**: 색상(color), 형태(shape), 카테고리(category) 추출
 3. **확장된 표현(expanded)**: 의미가 유사한 대체 쿼리 표현 3개 이상
 
-다음 형식의 JSON으로만 출력해 주세요:
+반드시 다음 형식의 **JSON**으로만 출력해 주세요:
 
 {{
   "corrected": "...",
@@ -131,18 +123,14 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
     response = model.generate_content(prompt)
     raw_text = response.text.strip()
     
-    if not raw_text:
-        print("[Gemini 응답이 비어 있음 → fallback]")
-        raise ValueError("빈 응답")
+    # 1) ```json … ``` 블록 또는 순수 JSON 배열만 꺼내기
+    json_text = extract_json_from_markdown(raw_text)
 
     try:
-        result = json.loads(raw_text)
-        result.setdefault("corrected", query)
-        result.setdefault("attributes", {"color": None, "shape": None, "category": None})
-        result.setdefault("expanded", [query])
-        return result
+        result = json.loads(json_text)
     except Exception as e:
         print(f"[Gemini 통합 파싱 실패 → fallback 사용] {e}")
+        # 기존 fallback 로직
         return {
             "corrected": query,
             "attributes": {
@@ -153,17 +141,17 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
             "expanded": [query]
         }
 
+    # 파싱에 성공했으면 기본값 채우기
+    result.setdefault("corrected", query)
+    result.setdefault("attributes", {"color": None, "shape": None, "category": None})
+    result.setdefault("expanded", [query])
+    return result
+
 # =============================================================================
 # 쿼리 전처리: Gemini 기반 쿼리 교정 및 속성 추출
 # =============================================================================
 def get_gemini_all_in_one(query: str):
-    cached = get_cached_gemini_result(query)
-    if cached:
-        print("[DEBUG] Gemini 통합 캐시 사용")
-        return cached
-    result = call_gemini_llm_all_in_one(query)
-    cache_gemini_result(query, result)
-    return result
+    return call_gemini_llm_all_in_one(query)
 
 # =============================================================================
 # Atlas Search 및 제품 필터링
@@ -270,20 +258,9 @@ def atlas_search(refined_query, attributes):
 # =============================================================================
 # BM25 기반 서치 (형태소 분석 및 BM25Okapi 사용)
 # =============================================================================
-def get_cached_query_tokens(query: str):
-    key = f"query_tokens:{query}"
-    cached = redis_client.get(key)
-    if cached:
-        return json.loads(cached)
-    tokens = tokenize_clean(query)
-    redis_client.setex(key, 60 * 60 * 24, json.dumps(tokens))  # 24시간 저장
-    return tokens
-
-
 def bm25_search(refined_query, products):
     # 1) 쿼리 토큰화
-    query_tokens = get_cached_query_tokens(refined_query)
-
+    query_tokens = tokenize_clean(refined_query)
     # 2) 전역 BM25로 전체 제품 점수 계산
     all_scores = np.array(_global_bm25.get_scores(query_tokens), dtype=float)
 
