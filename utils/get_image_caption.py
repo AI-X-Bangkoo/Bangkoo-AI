@@ -19,7 +19,7 @@ import torch
 
 
 def get_image_caption_and_embedding(image: Image.Image):
-    model = GenerativeModel("gemini-1.5-flash")
+    model = GenerativeModel("models/gemini-2.0-flash")
 
     # 1. 이미지 byte 변환
     buffered = io.BytesIO()

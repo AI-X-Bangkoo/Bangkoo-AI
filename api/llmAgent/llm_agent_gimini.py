@@ -35,7 +35,7 @@ Gemini 기반 AI 추천 모듈
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("models/gemini-2.0-flash")
 
 if not mongo_manager.ready:
     mongo_manager.connect()
