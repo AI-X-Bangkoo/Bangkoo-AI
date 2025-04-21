@@ -81,6 +81,30 @@ def get_cached_gemini_result(query: str):
 def cache_gemini_result(query: str, result: dict):
     redis_client.setex(f"gemini_cache:{query}", 60 * 60 * 24, json.dumps(result))
 
+# ——————————————————————————————————————
+# 전역 BM25 모델 캐시
+# ——————————————————————————————————————
+
+# 1) 모든 제품의 indexedTokens를 미리 불러와서 코퍼스 구성
+_all_products = list(mongo_manager.products.find(
+    {}, {"indexedTokens": 1, "link": 1}
+))
+# 2) 각 제품별 토큰 리스트
+_global_corpus_tokens = []
+#    link → corpus index 맵 (장차 subset 매핑용)
+_global_link2idx = {}
+for idx, doc in enumerate(_all_products):
+    toks = doc.get("indexedTokens")
+    if not toks:
+        # indexedTokens 가 없으면 name/description/detail 에서 추출
+        text = f"{doc.get('name','')} {doc.get('description','')} {doc.get('detail','')}".lower()
+        toks = tokenize_clean(text)
+    _global_corpus_tokens.append(toks)
+    _global_link2idx[doc["link"]] = idx
+
+# 3) BM25 모델 생성
+_global_bm25 = BM25Okapi(_global_corpus_tokens)
+
 # =============================================================================
 # Gemini LLM API 호출 함수 (Gemini 1.5-flash 사용)
 # =============================================================================
@@ -257,20 +281,19 @@ def get_cached_query_tokens(query: str):
 
 
 def bm25_search(refined_query, products):
-    def tokenize_product(product):
-        tokens = product.get("indexedTokens")
-        if not tokens:
-            print("[WARN] indexedTokens 없음:", product.get("name"))
-            text = f"{product.get('name', '')} {product.get('description', '')} {product.get('detail', '')}".lower()
-            tokens = tokenize_clean(text)
-        return tokens
-
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        corpus = list(executor.map(tokenize_product, products))
-
+    # 1) 쿼리 토큰화
     query_tokens = get_cached_query_tokens(refined_query)
-    bm25 = BM25Okapi(corpus)
-    scores = np.array(bm25.get_scores(query_tokens))
+
+    # 2) 전역 BM25로 전체 제품 점수 계산
+    all_scores = np.array(_global_bm25.get_scores(query_tokens), dtype=float)
+
+    # 3) 입력된 products 순서대로 점수 매핑
+    scores = np.array([
+        all_scores[_global_link2idx[p["link"]]]
+        for p in products
+    ], dtype=float)
+
+    # 4) 0~1 정규화
     if scores.max() > 0:
         scores = scores / scores.max()
     return scores
