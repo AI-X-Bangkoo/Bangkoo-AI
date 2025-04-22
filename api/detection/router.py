@@ -17,9 +17,10 @@ import torch
 router = APIRouter()
 
 try:
-    from api.detection.groundingdino.util.inference import load_model, predict
+    from api.detection.groundingdino.groundingdino.util.inference import load_model, predict
     from api.detection.sam2.build_sam import build_sam2
     from api.detection.sam2.sam2_image_predictor import SAM2ImagePredictor
+    print("GroundingDINO & SAM2 installed.")
     GROUNDINGDINO_AVAILABLE = True
 except ImportError:
     print("Warning: GroundingDINO or SAM2 not installed. Object detection features will be disabled.")
