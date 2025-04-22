@@ -204,6 +204,7 @@ def atlas_search(refined_query, attributes):
                 "price": 1,
                 "category": 1,
                 "csv": 1,
+                "model3dUrl": 1,
                 "searchScore": {"$meta": "searchScore"}
             }
         },
@@ -564,7 +565,9 @@ def hybrid_search(query, top_k=None):
             "카테고리": item.get("category"),
             "csv": item.get("csv", ""),
             "유사도": float(filtered_final_scores[idx]),
-            "추천이유": f"쿼리 '{refined_query}' 와 결합 유사도 {float(filtered_final_scores[idx]):.3f}"
+            "추천이유": f"쿼리 '{refined_query}' 와 결합 유사도 {float(filtered_final_scores[idx]):.3f}",
+            # 범석 추가
+            "glb이미지": item.get("model3dUrl",None)
         }
         candidates.append(candidate)
 
