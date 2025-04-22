@@ -16,6 +16,7 @@ from utils.query_utils import load_keyword_cache
 from mongo_manager import mongo_manager
 from api.productsEmbedding.router import router as embedding_router
 
+
 app = FastAPI()
 
 
@@ -43,7 +44,7 @@ app.include_router(placement_router, prefix="/api")
 app.include_router(detection_router, prefix="/api")
 app.include_router(style_recommend_router, prefix="/api")
 # app.include_router()
-app.include_router(embedding_router, prefix="/api")
+
 
 @app.get("/")
 def read_root():

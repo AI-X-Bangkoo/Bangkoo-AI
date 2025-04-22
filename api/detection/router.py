@@ -17,7 +17,7 @@ import torch
 router = APIRouter()
 
 try:
-    from api.detection.groundingdino.util.inference import load_model, predict
+    from api.detection.GroundingDINO.groundingdino.util.inference import load_model, predict
     from api.detection.sam2.build_sam import build_sam2
     from api.detection.sam2.sam2_image_predictor import SAM2ImagePredictor
     GROUNDINGDINO_AVAILABLE = True

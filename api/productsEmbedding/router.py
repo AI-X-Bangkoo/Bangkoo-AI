@@ -6,6 +6,7 @@ from api.productsEmbedding.upload_products_embedding import upload_products  # �
 from datetime import datetime
 from pydantic import BaseModel
 import traceback
+from typing import Optional
 
 # FastAPI 라우터 정의
 router = APIRouter()
