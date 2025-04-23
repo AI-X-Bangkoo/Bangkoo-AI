@@ -35,7 +35,7 @@ Gemini 기반 AI 추천 모듈
 load_dotenv()
 
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("models/gemini-2.0-flash")
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 if not mongo_manager.ready:
     mongo_manager.connect()
@@ -182,94 +182,6 @@ async def rerank_ai_recommendations_async(
 # =============================================================================
 # 필터를 가지고 제품 추천 함수
 # =============================================================================
-# --- 1) Top-3 결정 ---
-async def pick_top_products(room_style: str, query: str, candidates: list) -> list:
-    product_summary = "\n".join(f"{p['name']} | {p['link']}" for p in candidates)
-    pick_prompt = f"""\
-You are an interior expert.
-Room style: {room_style}
-Query: {query}
-
-Here are candidate products (format: name | link):
-{product_summary}
-
-Choose the top 10 most suitable products and return strictly this JSON array **only** (no markdown fences, no extra text):
-[
-  {{ "name": "..." }},
-  {{ "name": "..." }},
-  {{ "name": "..." }}
-]
-"""
-    resp = await asyncio.to_thread(model.generate_content, [pick_prompt])
-    # 1) 원본 출력 디버깅
-    print("[DEBUG] pick_top_products raw resp:", resp.text)
-
-    # 2) Markdown 제거 후 JSON 추출
-    json_str = extract_json_from_markdown(resp.text)
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        # 파싱 실패 시, 에러 로그와 함께 원본을 출력
-        print("[ERROR] pick_top_products JSON 파싱 실패:", e)
-        print("---- raw response start ----")
-        print(resp.text)
-        print("---- raw response end ----")
-        raise
-
-# --- 2) 추천 이유 생성 ---
-async def generate_recommendation_reasons(
-    room_style: str,
-    query: str,
-    picked: list,
-    candidate_map: dict
-) -> list:
-    # 1) summary 에 original description 포함
-    prod_details = []
-    for p in picked:
-        name        = p["name"]
-        desc        = candidate_map[name].get("description", "")
-        detail      = candidate_map[name].get("detail", "")
-        summary_det = (detail[:50] + "…") if len(detail) > 50 else detail
-        prod_details.append(
-            f"{name} | description: {desc} | price: {p.get('price','-')} | detail: {summary_det}"
-        )
-    prod_details_str = "\n".join(prod_details)
-
-    # 2) 프롬프트에 description 키를 출력 스키마로 명시
-    reason_prompt = f"""\
-You are an interior expert.
-Room style: {room_style}
-Query: {query}
-
-Here are the products with their original descriptions:
-{prod_details_str}
-
-For each product, write a one‑sentence recommendation reason.
-**Do NOT include any products that do NOT satisfy the constraints.**
-Return **only** this JSON array (no markdown fences, no extra text), with each object containing exactly these keys:
-[
-  {{
-    "name": "…",
-    "description": "…",
-    "reason": "…"
-  }},
-  …
-]
-"""
-    resp = await asyncio.to_thread(model.generate_content, [reason_prompt])
-    raw = resp.text
-    print("[DEBUG] raw resp:", raw)
-
-    # 3) JSON 뽑아내고 리턴
-    json_str = extract_json_from_markdown(raw)
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        print("[ERROR] 파싱 실패, raw resp:", raw)
-        raise
-
-
-# --- 메인 추천 함수 ---
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
@@ -277,70 +189,98 @@ async def recommend_with_ai_agent(
     max_price: int = None,
     keyword: str = None,
     style: str = None
-) -> list:
+):
     overall_start = time.time()
-    print(f"[DEBUG] /search 진입 - query: {query}")
+    print(f"[DEBUG] /search 진입 - 전체 요청 form 데이터: {{'query': '{query}'}}")
+    
+    # 이미지 파일을 임시 파일로 저장
+    temp_file = NamedTemporaryFile(delete=False, suffix=".jpg")
+    temp_file.write(await image_file.read())
+    temp_file.close()
+    print(f"[DEBUG] 임시 이미지 저장 완료: {temp_file.name}")
 
-    # 1) 이미지 임시 저장
-    temp = NamedTemporaryFile(delete=False, suffix=".jpg")
-    temp.write(await image_file.read())
-    temp.close()
+    # --- 비동기로 방 스타일 설명 생성 (여기서 캐싱 사용함) ---
+    room_style = await get_room_style_description_async(temp_file.name)
 
-    # 2) 방 스타일 생성
-    room_style = await get_room_style_description_async(temp.name)
+    # --- DB 후보 제품 조회: 최대 1000개로 제한 -> 500개 테스트도 해봐야 할 듯? (속토 측면을 위해) ---
+    candidate_limit = 1000
+    db_query_start = time.time()
+    all_products = list(product_collection.find(
+        {},
+        {
+            "_id": 0,
+            "name": 1,
+            "description": 1,
+            "detail": 1,
+            "price": 1,
+            "link": 1,
+            "imageUrl": 1,
+            "csv": 1,
+            "category": 1
+        }
+    ).limit(candidate_limit))
+    print(f"[DEBUG] 전체 제품 수 (최대 {candidate_limit}개): {len(all_products)} (DB 조회 소요시간: {time.time() - db_query_start:.2f}초)")
 
-    # 3) DB 후보 조회 및 필터링
-    if not mongo_manager.ready:
-        mongo_manager.connect()
-    products = list(mongo_manager.products.find({}, {"_id":0, "name":1, "detail":1, "price":1, "link":1, "imageUrl":1, "category":1, "description": 1}).limit(1000))
-    filtered = []
-    for p in products:
+    # --- 가격 필터 적용 ---
+    filtered_products = []
+    for p in all_products:
         try:
-            price = int(str(p.get('price','0')).replace(',',''))
-            if (min_price and price < min_price) or (max_price and price > max_price):
+            price = int(str(p.get("price", "0")).replace(",", ""))
+            if (min_price is not None and price < min_price) or (max_price is not None and price > max_price):
                 continue
-        except:
-            pass
-        filtered.append(p)
-    extracted = extract_keywords_from_query(query)
-    cat = guess_category_from_keywords(extracted, list({p.get('category','') for p in filtered}))
-    cat_filtered = filter_products_by_category(filtered, cat)
-    kw_filtered = filter_by_query_keywords(filtered, query)
-    if len(cat_filtered) >= 5:
-        candidates = cat_filtered
-    elif len(kw_filtered) >= 5:
-        candidates = kw_filtered
+        except Exception:
+            continue
+        filtered_products.append(p)
+    print("[DEBUG] 가격 필터 후 카테고리 분포:", Counter([p.get("category", "없음") for p in filtered_products]))
+
+    # --- 키워드 추출 및 카테고리 추론 (키워드 모듈에서 불러옴) ---
+    extracted_keywords = extract_keywords_from_query(query)
+    all_categories = list(set(p.get("category", "") for p in filtered_products if p.get("category")))
+    category = guess_category_from_keywords(extracted_keywords, all_categories)
+    print(f"[DEBUG] 추론된 카테고리: {category}")
+
+    # --- 제품 필터링: 카테고리 필터 및 키워드 필터 적용 ---
+    category_filtered = filter_products_by_category(filtered_products, category)
+    print(f"[DEBUG] 카테고리 필터 후: {len(category_filtered)}")
+    keyword_filtered = filter_by_query_keywords(filtered_products, query)
+    print(f"[DEBUG] 키워드 필터 후: {len(keyword_filtered)}")
+
+    # --- 후보 선택: 카테고리 필터 결과 우선, 없으면 키워드 필터, 최종적으로 전체 일부 사용 ---
+    if len(category_filtered) >= 5:
+        candidates = category_filtered
+    elif len(keyword_filtered) >= 5:
+        print("[WARN] 카테고리 제품 부족 → 키워드 필터 사용")
+        candidates = keyword_filtered
     else:
-        candidates = filtered[:50]
-    print(f"[DEBUG] 후보 수: {len(candidates)}")
+        print("[WARN] 후보가 너무 적음 → 전체 일부 사용")
+        candidates = filtered_products[:50]
 
-    # 4) 단계별 LLM 호출
-    top_list = candidates[:30]
-    pick_start = time.time()
-    picked = await pick_top_products(room_style, query, top_list)
-    print(f"[DEBUG] Top-3 결정 소요: {time.time() - pick_start:.2f}s")
+    if not candidates:
+        return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
+    print(f"[DEBUG] 후보 선택 완료 - 후보 수: {len(candidates)}")
 
-    candidate_map = {p['name']: p for p in top_list}
-    reason_start = time.time()
-    reasons = await generate_recommendation_reasons(room_style, query, picked, candidate_map)
-    print(f"[DEBUG] 이유생성 소요: {time.time() - reason_start:.2f}s")
+    # --- gemini 재랭킹: 후보 제품 수를 후보군의 상위 100개로 제한하여 프롬프트 길이를 단축 ---
+    rerank_start = time.time()
+    rerank_result = await rerank_ai_recommendations_async(
+        room_style,
+        query,
+        candidates[:30],
+        min_price=min_price,
+        max_price=max_price,
+        keyword=keyword,
+        style=style,
+        category=category
+    )
+    print(f"[DEBUG] Gemini 재랭킹 전체 소요시간: {time.time() - rerank_start:.2f}초")
+    try:
+        start = time.time()
+        parsed = json.loads(extract_json_from_markdown(rerank_result))
+        print(f"[DEBUG] 후처리 소요시간: {time.time() - start:.2f}초")
+    except json.JSONDecodeError as e:
+        print("JSON 파싱 실패:", e)
+        print("Gemini 재랭킹 응답:\n", rerank_result)
+        raise e
 
-    # 5) 결과 조합
-    result = []
-    for item in reasons:
-        name = item['name']
-        prod = candidate_map[name]
-        result.append({
-            "이름":         prod["name"],
-            "설명":         prod.get("description", ""),
-            "링크":         prod["link"],
-            "이미지":       prod.get("imageUrl", ""),
-            "상세설명":     prod.get("detail", ""),
-            "할인가":       prod.get("할인가"),
-            "정상가":       prod.get("price"),
-            "csv":         prod.get("csv"),
-            "추천이유":     item["reason"]
-        })
-
-    print(f"[DEBUG] 전체 처리 시간: {time.time() - overall_start:.2f}s")
-    return result
+    print(f"[DEBUG] 최종 추천 개수: {len(parsed)}")
+    print(f"[DEBUG] 전체 추천 처리 시간: {time.time() - overall_start:.2f}초")
+    return parsed[:3]

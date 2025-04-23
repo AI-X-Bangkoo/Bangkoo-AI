@@ -172,20 +172,28 @@ def get_shape_keywords_from_db():
     return doc["dict"] if doc and "dict" in doc else {}
 
 def extract_shape_from_caption(caption: str, db):
-    shape_dict = db["shape_keywords"].find_one({"_id": "korean"})
-    if not shape_dict or "dict" not in shape_dict:
+    shape_doc = db["shape_keywords"].find_one({"_id": "korean"})
+    if not shape_doc or "dict" not in shape_doc:
         return None, []
 
-    caption = caption.lower()
-    match_key = None
-    synonyms = []
-    for shape_key, keywords in shape_dict["dict"].items():
+    caption_lower = caption.lower()
+    earliest = None  # (position, shape_key, synonyms)
+
+    for shape_key, keywords in shape_doc["dict"].items():
         for word in keywords:
-            if word in caption:
-                match_key = shape_key
-                synonyms = keywords
-                print(f"[SHAPE] 형태 키 '{shape_key}' 추출됨 (매칭: {word})")
-                return match_key, synonyms
+            idx = caption_lower.find(word)
+            if idx != -1:
+                # 발견 위치, 키, 동의어 리스트 저장
+                if earliest is None or idx < earliest[0]:
+                    earliest = (idx, shape_key, keywords)
+                # 한 키워드당 하나만 기록해도 충분하니 break
+                break
+
+    if earliest:
+        pos, match_key, synonyms = earliest
+        print(f"[SHAPE] 형태 키 '{match_key}' 추출됨 (매칭: '{synonyms[0]}', 위치: {pos})")
+        return match_key, synonyms
+
     print("[SHAPE] 형태 키 없음")
     return None, []
 
