@@ -194,16 +194,45 @@ def atlas_search(refined_query, attributes):
     }
 
     pipeline = [
-        {"$search": {"index":"search_index","compound":compound}},
-        {"$project": {
-            "_id":0,"name":1,"description":1,"detail":1,
-            "textEmbedding": 1, "imageEmbedding": 1,
-            "link":1,"imageUrl":1,"price":1,"category":1,
-            "csv":1,"model3dUrl":1,
-            "searchScore":{"$meta":"searchScore"}
-        }},
-        {"$limit":200}
+        {
+            "$search": {
+                "index":  "search_index",
+                "compound": compound
+            }
+        },
+        {
+
+            "$match": {
+            "textEmbedding":   {"$exists": True, "$type": "array"},
+            "imageEmbedding":  {"$exists": True, "$type": "array"},
+            "$expr": {
+            "$and": [
+                {"$eq": [{"$size": "$textEmbedding"}, 768]},
+                {"$eq": [{"$size": "$imageEmbedding"}, 1024]}
+                ]
+                }
+            }
+        },
+        {
+            "$project": {
+                "_id":         0,
+                "name":        1,
+                "description": 1,
+                "detail":      1,
+                "textEmbedding":   1,
+                "imageEmbedding":  1,
+                "link":       1,
+                "imageUrl":    1,
+                "price":       1,
+                "category":    1,
+                "csv":         1,
+                "model3dUrl":  1,
+                "searchScore": {"$meta": "searchScore"}
+            }
+        },
+        {"$limit": 200}
     ]
+
 
 
     start = time.time()
