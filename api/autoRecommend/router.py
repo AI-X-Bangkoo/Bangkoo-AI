@@ -1,16 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List
-from api.recommend import recommend_furniture_for_room  # 추천 함수
+from api.autoRecommend import recommend_furniture_for_room  # 추천 함수
+from utils.gemini_utils import analyze_room_with_gemini_by_file
 
 router = APIRouter()
 
-class RoomImageRequest(BaseModel):
-    room_image: str  # 방 이미지를 base64로 전달하거나 URL을 사용할 수 있습니다
-    style_keywords: List[str]  # 스타일에 관련된 키워드 리스트
-    min_price: int = None  # 최소 가격 필터
-    max_price: int = None  # 최대 가격 필터
-
+# RecommendedProduct 모델 정의
 class RecommendedProduct(BaseModel):
     이름: str
     설명: str
@@ -19,21 +15,37 @@ class RecommendedProduct(BaseModel):
     이미지: str
     추천이유: str
 
-@router.post("/style-recommendation", response_model=List[RecommendedProduct])
-async def get_style_recommendation(request: RoomImageRequest):
+print(f"[DEBUG] analyze_room_with_gemini_by_file 타입: {(analyze_room_with_gemini_by_file)}")
+
+# 스타일 추천 API (이미지 파일 업로드 방식)
+@router.post("/style_recommendation", response_model=List[RecommendedProduct])
+async def get_style_recommendation(
+    file: UploadFile = File(...),
+    style_keywords: List[str] = None,
+    min_price: int = None,
+    max_price: int = None,
+):
     """
-    방 이미지 및 스타일 키워드를 기반으로 적합한 가구를 추천합니다.
+    업로드된 방 이미지 및 스타일 키워드를 기반으로 적합한 가구를 추천합니다.
     """
     try:
-        room_image = request.room_image
-        style_keywords = request.style_keywords
-        min_price = request.min_price
-        max_price = request.max_price
-
         recommended_products = await recommend_furniture_for_room(
-            room_image, style_keywords, min_price, max_price
+            file, style_keywords, min_price, max_price
         )
-        
         return recommended_products
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"추천 오류: {str(e)}")
+
+
+# 방 스타일 분석 API
+@router.post("/analyze-room")
+async def analyze_room(file: UploadFile = File(...)):  # 이미지 파일 받기
+    """
+    업로드된 방 이미지를 분석하여 스타일, 가구 카테고리 등을 추출합니다.
+    """
+    try:
+        # 이미지를 분석하는 함수 호출 (파일 처리)
+        result = await analyze_room_with_gemini_by_file(file)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"분석 오류: {str(e)}")
