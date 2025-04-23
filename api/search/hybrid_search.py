@@ -159,56 +159,50 @@ def get_gemini_all_in_one(query: str):
 def atlas_search(refined_query, attributes):
     db = mongo_manager.db
     product_collection = mongo_manager.products
-
-    # 1) compound 기본 구조: must 절만 넣어둠
-    compound = {
-        "must": [
-            {
-                "text": {
-                    "query": refined_query,
-                    "path": ["name", "description", "detail"]
-                }
+    
+    synonyms_dict = db["synonyms"].find_one({"_id": "korean"})["dict"]
+    expanded = expand_query(refined_query, synonyms_dict)
+    
+    must_clause = {
+        "text": {"query": refined_query, "path": ["name","description","detail"]}
+    }
+    should_clauses = [
+        {
+            "text": {
+                "query": kw,
+                "path": ["name","description","detail"],
+                "score": {"boost":{"value":2.0}}
             }
-        ]
+        }
+        for kw in expanded
+    ]
+
+    should_category = []
+    if attributes.get("category"):
+        should_category = [{
+            "term": {
+                "query": attributes["category"],
+                "path": "category",
+                "score": {"boost":{"value":3.0}}
+            }
+        }]
+
+    compound = {
+        "must": [must_clause],
+        "should": should_clauses + should_category
+        # filter 제거
     }
 
-    # 2) category 필터가 있을 때만 filter 절 추가
-    if attributes.get("category"):
-        compound["filter"] = [
-            {
-                "term": {
-                    "query": attributes["category"],
-                    "path": "category"
-                }
-            }
-        ]
-
-    # 3) pipeline 에 동적으로 만든 compound 넣기
     pipeline = [
-        {
-            "$search": {
-                "index": "search_index",
-                "compound": compound
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "name": 1,
-                "description": 1,
-                "detail": 1,
-                "imageEmbedding": 1,
-                "textEmbedding": 1,
-                "link": 1,
-                "imageUrl": 1,
-                "price": 1,
-                "category": 1,
-                "csv": 1,
-                "model3dUrl": 1,
-                "searchScore": {"$meta": "searchScore"}
-            }
-        },
-        {"$limit": 200}
+        {"$search": {"index":"search_index","compound":compound}},
+        {"$project": {
+            "_id":0,"name":1,"description":1,"detail":1,
+            "textEmbedding": 1, "imageEmbedding": 1,
+            "link":1,"imageUrl":1,"price":1,"category":1,
+            "csv":1,"model3dUrl":1,
+            "searchScore":{"$meta":"searchScore"}
+        }},
+        {"$limit":200}
     ]
 
 
