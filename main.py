@@ -34,7 +34,10 @@ async def startup_event():
         except Exception as e:
             print("모델 로딩 중 에러 발생:", e)
 
-    asyncio.create_task(async_model_load())
+
+# await을 직접 사용해서 모델 로딩이 끝날 때까지 정확히 기다림
+# 그 전에 어떤 API 요청도 못 받음 (FastAPI가 기다려줌) -김병훈 수정정
+    await asyncio.to_thread(model_manager.load)
     print("startup_event 끝")
 
 app.include_router(recommend_router, prefix="/api")

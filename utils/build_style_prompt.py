@@ -1,3 +1,4 @@
+
 def build_style_prompt()->str:
     return """
     다음 이미지는 사용자의 방입니다. 당신은 인테리어 전문가입니다.

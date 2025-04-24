@@ -2,13 +2,15 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from model_loader import model_manager
 from mongo_manager import mongo_manager
-from utils.gemini_utils import analyze_room_with_gemini_by_file
-from fastapi import UploadFile
-from io import BytesIO
-from PIL import Image
+from utils.image_analysis_utils import analyze_room_with_gemini_by_file
+from fastapi import UploadFile, HTTPException
 
-
-async def recommend_furniture_for_room(room_image: UploadFile, style_keywords: list[str] = None, min_price: int = None, max_price: int = None):
+async def recommend_furniture_for_room(
+    file: UploadFile,
+    style_keywords: list[str] = None,
+    min_price: int = None,
+    max_price: int = None
+):
     """
     업로드된 방 이미지 파일과 스타일 정보를 기반으로 가구를 추천하는 함수
     :param room_image: 방 이미지 파일 (UploadFile)
@@ -18,8 +20,11 @@ async def recommend_furniture_for_room(room_image: UploadFile, style_keywords: l
     :return: 추천된 가구 리스트
     """
     try:
-        # 1. Gemini로 이미지 분석하여 스타일 및 기타 정보 추출
-        room_analysis = await analyze_room_with_gemini_by_file(room_image)
+        # 1) 방 이미지 분석 시작
+        print("🔍 방 이미지 분석 시작")
+        room_analysis = await analyze_room_with_gemini_by_file(file)
+        print("🔍 분석 결과:", room_analysis)
+
         room_style = room_analysis.get("style", "unknown")
         color_palette = room_analysis.get("color_palette", [])
         furniture_types = room_analysis.get("furniture_types", [])
@@ -28,7 +33,7 @@ async def recommend_furniture_for_room(room_image: UploadFile, style_keywords: l
         layout_features = room_analysis.get("layout_features", "")
         decor_items = room_analysis.get("decor_items", [])
 
-        # 2. 분석된 정보를 바탕으로 스타일 설명 텍스트 구성
+        # 2) 스타일 설명 텍스트 생성
         style_desc_parts = [
             f"style: {room_style}",
             f"colors: {', '.join(color_palette)}",
@@ -38,59 +43,54 @@ async def recommend_furniture_for_room(room_image: UploadFile, style_keywords: l
             f"layout: {layout_features}",
             f"decor: {', '.join(decor_items)}"
         ]
-
-        # 추가적인 스타일 키워드가 있을 경우 포함
         if style_keywords:
             style_desc_parts.append(f"keywords: {', '.join(style_keywords)}")
-
-        # 스타일 설명 텍스트 결합
         style_desc = " | ".join(style_desc_parts)
+        print("📝 스타일 설명 텍스트:", style_desc)
 
-        # 3. 텍스트 임베딩 생성 (정규화 포함)
+        # 3) 텍스트 임베딩 생성
+        print("🧠 텍스트 임베딩 생성 시작")
         room_style_embedding = model_manager.text_model.encode([style_desc], normalize_embeddings=True)
+        print("🧠 임베딩 생성 완료, shape:", np.shape(room_style_embedding))
 
-        # 4. MongoDB에서 가구 데이터 가져오기
+        # 4) MongoDB에서 가구 데이터 로드
         if not mongo_manager.ready:
-            mongo_manager.connect()  # MongoDB 연결 상태 확인 후 연결
+            mongo_manager.connect()
         collection = mongo_manager.db["products"]
 
-        # 제품 데이터 가져오기: 텍스트 임베딩이 있는 가구만 조회
         cursor = collection.find(
-            {"textEmbedding": {"$exists": True}},  # textEmbedding이 존재하는 문서만 필터링
-            {"name": 1, "price": 1, "category": 1, "textEmbedding": 1, "link": 1, "imageUrl": 1, "description": 1}  # 필요한 필드만 조회
+            {"textEmbedding": {"$exists": True}},
+            {"name": 1, "price": 1, "category": 1, "textEmbedding": 1, "link": 1, "imageUrl": 1, "description": 1}
         )
 
         products = []
         vectors = []
-
         for doc in cursor:
-            # 가격 필터링 (가격 문자열을 정수로 변환 후 조건 체크)
-            price = doc.get("price", "").replace(",", "").strip()
+            price_str = doc.get("price", "").replace(",", "").strip()
             try:
-                price = int(price) if price else 0
+                price = int(price_str) if price_str else 0
             except ValueError:
-                price = 0  # 가격 값이 비정상일 경우 기본값 0으로 처리
-
-            # 가격 필터링 조건 적용
+                price = 0
             if min_price is not None and price < min_price:
                 continue
             if max_price is not None and price > max_price:
                 continue
-
-            # 제품 리스트와 임베딩 벡터 리스트에 추가
             products.append(doc)
             vectors.append(doc["textEmbedding"])
+        print(f"💾 가구 로드 완료, 총 {len(products)}개")
 
         if not products:
-            # 조건에 맞는 제품이 없을 경우 메시지 반환
             return [{"이름": "추천 실패", "추천이유": "조건에 맞는 제품이 없습니다."}]
 
-        # 5. 텍스트 임베딩 간 코사인 유사도 계산
+        # 5) 코사인 유사도 계산
+        print("🔢 유사도 계산 시작")
         text_vectors = np.array(vectors)
-        text_sims = cosine_similarity(room_style_embedding, text_vectors)[0]  # 1차원 벡터 반환
-        top_indices = text_sims.argsort()[::-1][:10]  # 상위 10개 제품 추천
+        text_sims = cosine_similarity(room_style_embedding, text_vectors)[0]
+        print("🔢 유사도 예시(첫 5개):", text_sims[:5])
+        top_indices = text_sims.argsort()[::-1][:10]
+        print("🔢 상위 인덱스:", top_indices)
 
-        # 6. 추천 결과 정리
+        # 6) 추천 결과 정리
         recommended_results = []
         for i in top_indices:
             product = products[i]
@@ -102,9 +102,10 @@ async def recommend_furniture_for_room(room_image: UploadFile, style_keywords: l
                 "가격": product.get("price", ""),
                 "추천이유": f"{room_style} 스타일의 특징과 잘 어울리는 {product['category']}입니다."
             })
+        print(f"✅ 추천 결과 {len(recommended_results)}개 생성 완료")
 
         return recommended_results
 
     except Exception as e:
-        logging.error(f"가구 추천 오류: {e}")
-        raise
+        print("❌ 가구 추천 파이프라인 중 오류 발생:", str(e))
+        raise HTTPException(status_code=500, detail=f"추천 오류: {str(e)}")
