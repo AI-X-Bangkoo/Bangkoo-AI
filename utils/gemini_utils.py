@@ -22,7 +22,7 @@ load_dotenv()
 
 # 초기화
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+gemini_model = genai.GenerativeModel("models/gemini-2.0-flash")
 
 def should_use_image_for_recommendation(query: str) -> bool:
     """

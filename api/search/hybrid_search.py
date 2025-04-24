@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import redis
 import json
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -13,7 +12,8 @@ from functools import lru_cache
 
 import google.generativeai as genai
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+# model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("models/gemini-2.0-flash")
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -30,11 +30,11 @@ from utils.query_utils import (
     auto_insert_space  # fallback 용으로 남겨둠
 )
 from utils.visual_color_utils import get_color_keywords_from_db
+from utils.markdown_utils import extract_json_from_markdown
 
 from rank_bm25 import BM25Okapi
 from konlpy.tag import Okt
 okt = Okt()
-redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
 """
 최초 작성자: 김동규
@@ -73,15 +73,32 @@ def tokenize_clean(text):
     tokens = okt.morphs(text.lower())
     return [t for t in tokens if t not in STOPWORDS]
 
-def get_cached_gemini_result(query: str):
-    cached = redis_client.get(f"gemini_cache:{query}")
-    return json.loads(cached) if cached else None
+# ——————————————————————————————————————
+# 전역 BM25 모델 캐시
+# ——————————————————————————————————————
 
-def cache_gemini_result(query: str, result: dict):
-    redis_client.setex(f"gemini_cache:{query}", 60 * 60 * 24, json.dumps(result))
+# 1) 모든 제품의 indexedTokens를 미리 불러와서 코퍼스 구성
+_all_products = list(mongo_manager.products.find(
+    {}, {"indexedTokens": 1, "link": 1}
+))
+# 2) 각 제품별 토큰 리스트
+_global_corpus_tokens = []
+#    link → corpus index 맵 (추후 subset 매핑용)
+_global_link2idx = {}
+for idx, doc in enumerate(_all_products):
+    toks = doc.get("indexedTokens")
+    if not toks:
+        # indexedTokens 가 없으면 name/description/detail 에서 추출
+        text = f"{doc.get('name','')} {doc.get('description','')} {doc.get('detail','')}".lower()
+        toks = tokenize_clean(text)
+    _global_corpus_tokens.append(toks)
+    _global_link2idx[doc["link"]] = idx
+
+# 3) BM25 모델 생성
+_global_bm25 = BM25Okapi(_global_corpus_tokens)
 
 # =============================================================================
-# Gemini LLM API 호출 함수 (Gemini 1.5-flash 사용)
+# Gemini LLM API 호출 함수 (Gemini 2.0-flash 사용)
 # =============================================================================
 def call_gemini_llm_all_in_one(query: str) -> dict:
     prompt = f"""
@@ -91,7 +108,7 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
 2. **속성(attributes)**: 색상(color), 형태(shape), 카테고리(category) 추출
 3. **확장된 표현(expanded)**: 의미가 유사한 대체 쿼리 표현 3개 이상
 
-다음 형식의 JSON으로만 출력해 주세요:
+반드시 다음 형식의 **JSON**으로만 출력해 주세요:
 
 {{
   "corrected": "...",
@@ -106,18 +123,14 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
     response = model.generate_content(prompt)
     raw_text = response.text.strip()
     
-    if not raw_text:
-        print("[Gemini 응답이 비어 있음 → fallback]")
-        raise ValueError("빈 응답")
+    # 1) ```json … ``` 블록 또는 순수 JSON 배열만 꺼내기
+    json_text = extract_json_from_markdown(raw_text)
 
     try:
-        result = json.loads(raw_text)
-        result.setdefault("corrected", query)
-        result.setdefault("attributes", {"color": None, "shape": None, "category": None})
-        result.setdefault("expanded", [query])
-        return result
+        result = json.loads(json_text)
     except Exception as e:
         print(f"[Gemini 통합 파싱 실패 → fallback 사용] {e}")
+        # 기존 fallback 로직
         return {
             "corrected": query,
             "attributes": {
@@ -128,17 +141,17 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
             "expanded": [query]
         }
 
+    # 파싱에 성공했으면 기본값 채우기
+    result.setdefault("corrected", query)
+    result.setdefault("attributes", {"color": None, "shape": None, "category": None})
+    result.setdefault("expanded", [query])
+    return result
+
 # =============================================================================
 # 쿼리 전처리: Gemini 기반 쿼리 교정 및 속성 추출
 # =============================================================================
 def get_gemini_all_in_one(query: str):
-    cached = get_cached_gemini_result(query)
-    if cached:
-        print("[DEBUG] Gemini 통합 캐시 사용")
-        return cached
-    result = call_gemini_llm_all_in_one(query)
-    cache_gemini_result(query, result)
-    return result
+    return call_gemini_llm_all_in_one(query)
 
 # =============================================================================
 # Atlas Search 및 제품 필터링
@@ -146,53 +159,80 @@ def get_gemini_all_in_one(query: str):
 def atlas_search(refined_query, attributes):
     db = mongo_manager.db
     product_collection = mongo_manager.products
+    
+    synonyms_dict = db["synonyms"].find_one({"_id": "korean"})["dict"]
+    expanded = expand_query(refined_query, synonyms_dict)
+    
+    must_clause = {
+        "text": {"query": refined_query, "path": ["name","description","detail"]}
+    }
+    should_clauses = [
+        {
+            "text": {
+                "query": kw,
+                "path": ["name","description","detail"],
+                "score": {"boost":{"value":2.0}}
+            }
+        }
+        for kw in expanded
+    ]
 
-    query_filter = {}
+    should_category = []
     if attributes.get("category"):
-        query_filter["category"] = attributes["category"]
+        should_category = [{
+            "term": {
+                "query": attributes["category"],
+                "path": "category",
+                "score": {"boost":{"value":3.0}}
+            }
+        }]
+
+    compound = {
+        "must": [must_clause],
+        "should": should_clauses + should_category
+        # filter 제거
+    }
 
     pipeline = [
         {
             "$search": {
-                "index": "search_index",
-                "compound": {
-                    "must": [
-                        {
-                            "text": {
-                                "query": refined_query,
-                                "path": ["name", "description", "detail"]
-                            }
-                        }
-                    ],
-                    "filter": [
-                        {
-                            "term": {
-                                "query": attributes["category"],
-                                "path": "category"
-                            }
-                        }
-                    ]
+                "index":  "search_index",
+                "compound": compound
+            }
+        },
+        {
+
+            "$match": {
+            "textEmbedding":   {"$exists": True, "$type": "array"},
+            "imageEmbedding":  {"$exists": True, "$type": "array"},
+            "$expr": {
+            "$and": [
+                {"$eq": [{"$size": "$textEmbedding"}, 768]},
+                {"$eq": [{"$size": "$imageEmbedding"}, 1024]}
+                ]
                 }
             }
         },
         {
             "$project": {
-                "_id": 0,
-                "name": 1,
+                "_id":         0,
+                "name":        1,
                 "description": 1,
-                "detail": 1,
-                "imageEmbedding": 1,
-                "textEmbedding": 1,
-                "link": 1,
-                "imageUrl": 1,
-                "price": 1,
-                "category": 1,
-                "csv": 1,
+                "detail":      1,
+                "textEmbedding":   1,
+                "imageEmbedding":  1,
+                "link":       1,
+                "imageUrl":    1,
+                "price":       1,
+                "category":    1,
+                "csv":         1,
+                "model3dUrl":  1,
                 "searchScore": {"$meta": "searchScore"}
             }
         },
         {"$limit": 200}
     ]
+
 
 
     start = time.time()
@@ -242,31 +282,19 @@ def atlas_search(refined_query, attributes):
 # =============================================================================
 # BM25 기반 서치 (형태소 분석 및 BM25Okapi 사용)
 # =============================================================================
-def get_cached_query_tokens(query: str):
-    key = f"query_tokens:{query}"
-    cached = redis_client.get(key)
-    if cached:
-        return json.loads(cached)
-    tokens = tokenize_clean(query)
-    redis_client.setex(key, 60 * 60 * 24, json.dumps(tokens))  # 24시간 저장
-    return tokens
-
-
 def bm25_search(refined_query, products):
-    def tokenize_product(product):
-        tokens = product.get("indexedTokens")
-        if not tokens:
-            print("[WARN] indexedTokens 없음:", product.get("name"))
-            text = f"{product.get('name', '')} {product.get('description', '')} {product.get('detail', '')}".lower()
-            tokens = tokenize_clean(text)
-        return tokens
+    # 1) 쿼리 토큰화
+    query_tokens = tokenize_clean(refined_query)
+    # 2) 전역 BM25로 전체 제품 점수 계산
+    all_scores = np.array(_global_bm25.get_scores(query_tokens), dtype=float)
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        corpus = list(executor.map(tokenize_product, products))
+    # 3) 입력된 products 순서대로 점수 매핑
+    scores = np.array([
+        all_scores[_global_link2idx[p["link"]]]
+        for p in products
+    ], dtype=float)
 
-    query_tokens = get_cached_query_tokens(refined_query)
-    bm25 = BM25Okapi(corpus)
-    scores = np.array(bm25.get_scores(query_tokens))
+    # 4) 0~1 정규화
     if scores.max() > 0:
         scores = scores / scores.max()
     return scores
@@ -276,40 +304,42 @@ def bm25_search(refined_query, products):
 # 벡터 유사도 서치 (동적 확장 쿼리별 임베딩 기반 점수 계산)
 # =============================================================================
 def vector_similarity_search(expanded_queries, products):
-    device = model_manager.device
+    """
+    CPU 전용 벡터 유사도 계산
+    - expanded_queries: List[str]
+    - products: List[dict], 각 dict에 'textEmbedding' (shape D_txt)과 'imageEmbedding' (shape D_img)이 numpy array로 들어있어야 함
+    """
+    # 1) 제품 임베딩 행렬 쌓기: text_matrix.shape = (N, D_txt), image_matrix.shape = (N, D_img)
+    text_matrix  = np.stack([p["textEmbedding"]  for p in products], axis=0)
+    image_matrix = np.stack([p["imageEmbedding"] for p in products], axis=0)
 
-    # NumPy → torch.tensor → to(device) 순서로 해야 함
-    image_embeddings = torch.tensor(
-        np.array([p["imageEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    text_embeddings = torch.tensor(
-        np.array([p["textEmbedding"] for p in products], dtype=np.float32)
-    ).to(device)
-
-    img_emb = image_embeddings
-    txt_emb = text_embeddings
-
-    query_scores_list = []
+    # 2) 쿼리별 유사도 계산
+    scores_list = []
     for q in expanded_queries:
         try:
-            e5_embed = get_text_embedding(q)
-            clip_embed = get_clip_text_embedding(q)
+            e5_vec   = get_text_embedding(q)    # (1, D_txt) 혹은 (D_txt,)
+            clip_vec = get_clip_text_embedding(q)  # (1, D_img) 혹은 (D_img,)
 
-            e5_embed = torch.tensor(e5_embed).to(device)
-            clip_embed = torch.tensor(clip_embed).to(device)
+            # 1차원 반환 시 2차원으로 바꿔주기
+            if e5_vec.ndim == 1:
+                e5_vec = e5_vec.reshape(1, -1)
+            if clip_vec.ndim == 1:
+                clip_vec = clip_vec.reshape(1, -1)
 
-            sim_text = torch.nn.functional.cosine_similarity(e5_embed, txt_emb).cpu().numpy()
-            sim_image = torch.nn.functional.cosine_similarity(clip_embed, img_emb).cpu().numpy()
+            # cosine_similarity → (1, N) 배열 반환
+            sim_text  = cosine_similarity(e5_vec,  text_matrix).flatten()
+            sim_image = cosine_similarity(clip_vec, image_matrix).flatten()
 
+            # 가중합
             score = 0.6 * sim_text + 0.4 * sim_image
-            query_scores_list.append(score)
+            scores_list.append(score)
         except Exception as e:
             print(f"[SKIP] '{q}' 임베딩 실패 → {e}")
 
-    if not query_scores_list:
+    # 3) 쿼리별 스코어 중 최댓값 취하기
+    if not scores_list:
         return None
-    vector_scores = np.maximum.reduce(query_scores_list)
+    vector_scores = np.maximum.reduce(scores_list)
     return vector_scores
 
 
@@ -488,20 +518,25 @@ def hybrid_search(query, top_k=None):
     
     print(f"[DEBUG] 확장된 쿼리: {expanded_queries}")
     
-    start = time.time()
-    bm25_scores = bm25_search(refined_query, products)
-    end = time.time()
-    print(f"[Atlas BM25 점수 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] BM25 점수: {bm25_scores}")
-    
-    start = time.time()
-    vector_scores = vector_similarity_search(expanded_queries, products)
-    end = time.time()
-    print(f"[Atlas 벡터 유사도 점수 소요 시간]: {end - start:.2f}초")
+     # 2) BM25와 벡터 유사도를 병렬로 실행
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_bm25  = executor.submit(bm25_search, refined_query, products)
+        future_vec   = executor.submit(vector_similarity_search, expanded_queries, products)
+
+        # 두 작업이 다 끝날 때까지 기다림
+        bm25_scores   = future_bm25.result()
+        vector_scores = future_vec.result()
+
+    # 실패 처리
     if vector_scores is None:
         print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
         return []
-    print(f"[DEBUG] 벡터 유사도 점수: {vector_scores}")
+    if bm25_scores is None:
+        # BM25가 실패해도 0점 배열로 대체
+        bm25_scores = np.zeros_like(vector_scores)
+
+    print(f"[DEBUG] BM25 점수:   {bm25_scores}")
+    print(f"[DEBUG] 벡터 점수: {vector_scores}")
     
     start = time.time()
     llm_bonus = compute_llm_bonus(products, attributes)
@@ -537,14 +572,7 @@ def hybrid_search(query, top_k=None):
     end = time.time()
     print(f"[후보 추출 및 정렬 소요 시간]: {end - start:.2f}초")
     
-    # 12. 상위 후보 추출 및 인상 로그 기록 (임계치 적용 후)
-    def save_impressions(candidates):
-        def save(candidate):
-            log_impression(candidate)
-        
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            executor.map(save, candidates)
-    start = time.time()
+    # 12. 상위 후보 추출 (인상 로그 로직 제거)
     candidates = []
     limit = top_k if top_k is not None else len(filtered_products)
     for idx in sorted_filtered_indices[:limit]:
@@ -560,18 +588,18 @@ def hybrid_search(query, top_k=None):
             "카테고리": item.get("category"),
             "csv": item.get("csv", ""),
             "유사도": float(filtered_final_scores[idx]),
-            "추천이유": f"쿼리 '{refined_query}' 와 결합 유사도 {float(filtered_final_scores[idx]):.3f}"
+            "추천이유": f"쿼리 '{refined_query}' 와 결합 유사도 {float(filtered_final_scores[idx]):.3f}",
+            # 범석 추가
+            "glb이미지": item.get("model3dUrl",None)
         }
         candidates.append(candidate)
 
-    # 병렬로 로그 저장
-    save_impressions(candidates)
-    end = time.time()
-    print(f"[상위 후보 추출 및 인상 로그 소요 시간]: {end - start:.2f}초")
-
+    # 13. (이제 로그는 Java 백엔드가 담당)
     base_scores = np.array([cand["유사도"] for cand in candidates])
-    re_ranked_candidates = re_rank_candidates_with_feedback(refined_query, candidates, base_scores, attributes)
-    
+    re_ranked_candidates = re_rank_candidates_with_feedback(
+        refined_query, candidates, base_scores, attributes
+    )
+
     end1 = time.time()
     print(f"[검색 총 소요 시간]: {end1 - start1:.2f}초")
     return re_ranked_candidates
