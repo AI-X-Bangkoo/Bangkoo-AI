@@ -26,5 +26,5 @@ __pycache__/
 *.log
 download_models/
 # Ignore build artifacts
-api/detection/groundingdino/groundingdino/build/
+api/detection/
 

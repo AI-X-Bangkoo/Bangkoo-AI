@@ -1,6 +1,12 @@
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
+from utils import build_style_prompt
+from utils import extract_and_parse_json
+from fastapi import UploadFile
+from io import BytesIO
+from PIL import Image
+
 
 """
 최초 작성자: 김동규
@@ -12,6 +18,7 @@ from dotenv import load_dotenv
 """
 
 load_dotenv()
+
 
 # 초기화
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))

@@ -15,6 +15,8 @@ import asyncio
 from utils.query_utils import load_keyword_cache
 from mongo_manager import mongo_manager
 from api.productsEmbedding.router import router as embedding_router
+from api.autoRecommend.router import router as style_recommendation
+from api.autoRecommend.router import router as analyz_room
 
 app = FastAPI()
 
@@ -32,7 +34,10 @@ async def startup_event():
         except Exception as e:
             print("모델 로딩 중 에러 발생:", e)
 
-    asyncio.create_task(async_model_load())
+
+# await을 직접 사용해서 모델 로딩이 끝날 때까지 정확히 기다림
+# 그 전에 어떤 API 요청도 못 받음 (FastAPI가 기다려줌) -김병훈 수정정
+    await asyncio.to_thread(model_manager.load)
     print("startup_event 끝")
 
 app.include_router(recommend_router, prefix="/api")
@@ -42,8 +47,11 @@ app.include_router(placement_router, prefix="/api")
 
 app.include_router(detection_router, prefix="/api")
 app.include_router(style_recommend_router, prefix="/api")
-# app.include_router()
+app.include_router(style_recommendation, prefix="/api")
+app.include_router(analyz_room, prefix="/api")
 app.include_router(embedding_router, prefix="/api")
+# app.include_router()
+
 
 @app.get("/")
 def read_root():

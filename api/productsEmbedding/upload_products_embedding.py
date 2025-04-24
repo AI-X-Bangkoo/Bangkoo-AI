@@ -4,7 +4,7 @@ import time
 from pymongo import MongoClient, UpdateOne
 from datetime import datetime
 from dotenv import load_dotenv
-from model_loader import model_manager  #이미지 및 텍스트 임베딩 모델 로더더
+from model_loader import model_manager  #이미지 및 텍스트 임베딩 모델 로더
 import numpy as np
 
 
@@ -66,6 +66,7 @@ def encode_embeddings(item):
             item["imageEmbedding"] = model_manager.encode_image_from_url(item["imageUrl"]).tolist()
         except Exception as e:
             print(f"[오류] 이미지 임베딩 실패: {e}")
+            item["imageEmbedding"] = None  # 실패 시 None 처리
     
     # 텍스트 임베딩이 없을 경우 name + description + detail을 합쳐서 생성
     if "textEmbedding" not in item:
@@ -76,18 +77,48 @@ def encode_embeddings(item):
             )[0].tolist()
         except Exception as e:
             print(f"[오류] 텍스트 임베딩 실패: {e}")
+            item["textEmbedding"] = None  # 실패 시 None 처리
 
     # 두 임베딩이 다 있을 때만 combinedEmbedding 생성
     if "imageEmbedding" in item and "textEmbedding" in item:
         combined = generate_combined_embedding(item)
         if combined:
             item["combinedEmbedding"] = combined
+        else:
+            print(f"[경고] combinedEmbedding 생성 실패: {item['link']}")
+            item["combinedEmbedding"] = None  # combinedEmbedding 생성 실패 시 None 처리
 
     return item
 
 
+
 # 실제 업로드 처리 함수(임베딩 포함 MongoDB upsert)
 def upload_products(products: list):
+    ops = []
+
+    for item in products:
+        # 'link' 필드가 없으면 에러 발생
+        if "link" not in item:
+            print(f"[오류] link 필드 누락: {item}")
+            continue  # link 필드가 없으면 해당 항목을 건너뜁니다.
+
+        item = encode_embeddings(item)  # 임베딩 생성
+        item["updateAt"] = datetime.utcnow()  # 수정 시간 갱신
+
+        # link 필드를 기준으로 upsert(존재하면 업데이트, 없으면 삽입)
+        ops.append(UpdateOne(
+            {"link": item["link"]},
+            {"$set": item, "$setOnInsert": {"createAt": datetime.utcnow()}},
+            upsert=True
+        ))
+
+    # 일괄 반영(bulk_write)
+    if ops:
+        result = collection.bulk_write(ops)
+        print(f"[업로드 결과] 삽입: {result.upserted_count} / 수정: {result.modified_count}")
+    else:
+        print("[알림] 업로드 할 항목이 없습니다.")
+
     ops = []
 
     for item in products:
