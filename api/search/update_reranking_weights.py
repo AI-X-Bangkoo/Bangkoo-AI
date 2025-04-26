@@ -31,7 +31,7 @@ def update_reranking_weights():
     
     if result:
         avg_ctr = result[0]["avg_ctr"]
-        print(f"[Update Weights] 현재 평균 CTR: {avg_ctr:.3f}")
+        # print(f"[Update Weights] 현재 평균 CTR: {avg_ctr:.3f}")
         
         # A/B Variant 선택: CTR 값에 따라 다른 가중치 세트를 적용하는 예시임
         if avg_ctr > 0.1:
@@ -45,7 +45,7 @@ def update_reranking_weights():
             {"$set": new_weights},
             upsert=True
         )
-        print(f"[Update Weights] 재정렬 가중치 업데이트됨: {new_weights}")
+        # print(f"[Update Weights] 재정렬 가중치 업데이트됨: {new_weights}")
     else:
         print("[Update Weights] 피드백 데이터가 부족합니다.")
 
@@ -53,7 +53,7 @@ def update_reranking_weights():
 schedule.every().day.at("02:00").do(update_reranking_weights)
 
 if __name__ == "__main__":
-    print("[Feedback Pipeline] 피드백 가중치 업데이트 파이프라인 시작")
+    # print("[Feedback Pipeline] 피드백 가중치 업데이트 파이프라인 시작")
     while True:
         schedule.run_pending()
         time.sleep(60)  # 1분마다 스케줄 확인

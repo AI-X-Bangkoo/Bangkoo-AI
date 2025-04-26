@@ -135,7 +135,7 @@ def call_gemini_llm_all_in_one(query: str) -> dict:
     try:
         result = json.loads(json_text)
     except Exception as e:
-        print(f"[Gemini 통합 파싱 실패 → fallback 사용] {e}")
+        # print(f"[Gemini 통합 파싱 실패 → fallback 사용] {e}")
         # 기존 fallback 로직
         return {
             "corrected": query,
@@ -246,8 +246,8 @@ def atlas_search(refined_query, attributes, top_k=100):
     start = time.time()
     products = list(product_collection.aggregate(pipeline))
     end = time.time()
-    print(f"[Atlas Search 조회 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
+    # print(f"[Atlas Search 조회 소요 시간]: {end - start:.2f}초")
+    # print(f"[DEBUG] DB 조회 후 제품 개수: {len(products)}")
 
     # 색상 필터링
     # DB에서 색상 동의어 사전을 가져옴
@@ -262,7 +262,7 @@ def atlas_search(refined_query, attributes, top_k=100):
             if any(s in text for s in color_synonyms):
                 filtered.append(p)
         if filtered:
-            print(f"[COLOR] '{color_key}' 관련 제품 필터링: {len(filtered)}개")
+            # print(f"[COLOR] '{color_key}' 관련 제품 필터링: {len(filtered)}개")
             products = filtered
     
     # DB 동의어 사용
@@ -280,7 +280,7 @@ def atlas_search(refined_query, attributes, top_k=100):
             if any(s in text for s in shape_synonyms):
                 filtered_shape.append(p)
         if filtered_shape:
-            print(f"[SHAPE] 형태 '{shape_key}' 관련 제품 필터링: {len(filtered_shape)}개")
+            # print(f"[SHAPE] 형태 '{shape_key}' 관련 제품 필터링: {len(filtered_shape)}개")
             products = filtered_shape
         else:
             print(f"[SHAPE] 형태 '{shape_key}' 관련 제품 없음 → 기존 결과 유지")
@@ -475,7 +475,7 @@ def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes)
     start = time.time()
     # 1) A/B 가중치는 그대로
     variant_weights = get_reranking_weights()
-    print(f"[A/B Variant] 적용된 가중치: {variant_weights}")
+    # print(f"[A/B Variant] 적용된 가중치: {variant_weights}")
 
     # 2) 후보 ID 리스트 수집
     candidate_ids = [cand["링크"] for cand in candidates]
@@ -519,7 +519,7 @@ def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes)
     re_ranked = [candidates[i] for i in indices]
 
     end = time.time()
-    print(f"피드백 보정 및 속성 보정 적용 소요 시간: {end - start:.2f}초")
+    # print(f"피드백 보정 및 속성 보정 적용 소요 시간: {end - start:.2f}초")
     return re_ranked
 
 
@@ -527,7 +527,7 @@ def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes)
 # 하이브리드 서치 + Re-Ranking 최종 함수 (피드백, A/B 테스트, 속성 보정 적용)
 # =============================================================================
 def hybrid_search(query, top_k=None):
-    print("[DEBUG] hybrid_search 진입")
+    # print("[DEBUG] hybrid_search 진입")
     start1 = time.time()
 
     # 1) simple-pattern 체크: "색상 카테고리" 형태 쿼리면 LLM 스킵
@@ -537,7 +537,7 @@ def hybrid_search(query, top_k=None):
         refined_query    = query
         attributes       = {"color": color, "shape": None, "category": category}
         expanded_queries = [query]
-        print(f"[DEBUG] 룰 기반 속성 추출 → refined_query={refined_query}, attributes={attributes}")
+        # print(f"[DEBUG] 룰 기반 속성 추출 → refined_query={refined_query}, attributes={attributes}")
         gemini_time = 0.0
     else:
         # 2) 그 외에만 LLM 호출
@@ -547,14 +547,14 @@ def hybrid_search(query, top_k=None):
         attributes       = gemini_result["attributes"]
         expanded_queries = gemini_result["expanded"]
         gemini_time = time.time() - start
-        print(f"[LLM 처리 소요 시간]: {gemini_time:.2f}초")
-    print(f"[DEBUG] 정제된 쿼리: {refined_query}, 추출된 속성: {attributes}")
+    #     print(f"[LLM 처리 소요 시간]: {gemini_time:.2f}초")
+    # print(f"[DEBUG] 정제된 쿼리: {refined_query}, 추출된 속성: {attributes}")
     
     if not model_manager.ready:
         raise RuntimeError("모델이 아직 로드되지 않았습니다.")
     if not mongo_manager.ready:
         mongo_manager.connect()
-    print("[DEBUG] Mongo 연결 성공")
+    # print("[DEBUG] Mongo 연결 성공")
     
     db = mongo_manager.db
     synonyms_doc = db["synonyms"].find_one({"_id": "korean"})
@@ -565,14 +565,14 @@ def hybrid_search(query, top_k=None):
     inferred = infer_category(refined_query, db)
     if inferred and not attributes.get("category"):
         attributes["category"] = inferred
-    print(f"[DEBUG] 최종 카테고리: {attributes.get('category')}")
+    # print(f"[DEBUG] 최종 카테고리: {attributes.get('category')}")
     
     products = atlas_search(refined_query, attributes, top_k=top_k or 100)
     if not products:
-        print("[ERROR] 제품 조회 결과 없음")
+        # print("[ERROR] 제품 조회 결과 없음")
         return []
     
-    print(f"[DEBUG] 확장된 쿼리: {expanded_queries}")
+    # print(f"[DEBUG] 확장된 쿼리: {expanded_queries}")
     
      # 2) BM25와 벡터 유사도를 병렬로 실행
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -585,40 +585,40 @@ def hybrid_search(query, top_k=None):
 
     # 실패 처리
     if vector_scores is None:
-        print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
+        # print("[ERROR] 모든 쿼리에 대해 임베딩 실패 → 빈 결과 반환")
         return []
     if bm25_scores is None:
         # BM25가 실패해도 0점 배열로 대체
         bm25_scores = np.zeros_like(vector_scores)
 
-    print(f"[DEBUG] BM25 점수:   {bm25_scores}")
-    print(f"[DEBUG] 벡터 점수: {vector_scores}")
+    # print(f"[DEBUG] BM25 점수:   {bm25_scores}")
+    # print(f"[DEBUG] 벡터 점수: {vector_scores}")
     
     start = time.time()
     llm_bonus = compute_llm_bonus(products, attributes)
     end = time.time()
-    print(f"[Atlas LLM 보너스 점수 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] LLM 보너스 점수: {llm_bonus}")
+    # print(f"[Atlas LLM 보너스 점수 소요 시간]: {end - start:.2f}초")
+    # print(f"[DEBUG] LLM 보너스 점수: {llm_bonus}")
     
     # 10. 기본 점수 결합
     weights = {"vector": 0.5, "bm25": 0.3, "llm": 0.2}
     start = time.time()
     final_scores = combine_scores(vector_scores, bm25_scores, llm_bonus, weights)
     end = time.time()
-    print(f"[Atlas 최종 결합 점수 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] 최종 결합 점수: {final_scores}")
+    # print(f"[Atlas 최종 결합 점수 소요 시간]: {end - start:.2f}초")
+    # print(f"[DEBUG] 최종 결합 점수: {final_scores}")
 
     # 11. 임계치(threshold) 미만인 후보 제외하기
     THRESHOLD = 0.5  # 예시: 최종 결합 점수가 0.5 미만인 후보는 제거 (정규화된 스코어 기준)
     high_score_indices = np.where(final_scores >= THRESHOLD)[0]
     if high_score_indices.size == 0:
-        print("[DEBUG] 모든 후보의 점수가 낮습니다. 임계치를 낮춰보세요.")
+        # print("[DEBUG] 모든 후보의 점수가 낮습니다. 임계치를 낮춰보세요.")
         high_score_indices = np.arange(len(final_scores))
     start = time.time()
     filtered_final_scores = final_scores[high_score_indices]
     end = time.time()
-    print(f"[Atlas 임계치 미만 후보 제외 소요 시간]: {end - start:.2f}초")
-    print(f"[DEBUG] 임계치 {THRESHOLD} 이상인 후보 인덱스: {high_score_indices}")
+    # print(f"[Atlas 임계치 미만 후보 제외 소요 시간]: {end - start:.2f}초")
+    # print(f"[DEBUG] 임계치 {THRESHOLD} 이상인 후보 인덱스: {high_score_indices}")
 
     start = time.time()
     # high_score_indices를 사용해 원래 제품 리스트에서 후보들(filtered_products) 추출
@@ -626,7 +626,7 @@ def hybrid_search(query, top_k=None):
     # 필터링된 후보들의 점수(filtered_final_scores) 기준 내림차순 정렬 (인덱스 재정렬)
     sorted_filtered_indices = np.argsort(filtered_final_scores)[::-1]
     end = time.time()
-    print(f"[후보 추출 및 정렬 소요 시간]: {end - start:.2f}초")
+    # print(f"[후보 추출 및 정렬 소요 시간]: {end - start:.2f}초")
     
     # 12. 상위 후보 추출 (인상 로그 로직 제거)
     candidates = []
