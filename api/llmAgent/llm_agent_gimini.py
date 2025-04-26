@@ -9,8 +9,6 @@ from fastapi import UploadFile
 from dotenv import load_dotenv
 import google.generativeai as genai
 from utils.markdown_utils import extract_json_from_markdown
-
-# 프로젝트 루트를 PYTHONPATH에 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from mongo_manager import mongo_manager
 from utils.keyword_module import (
@@ -21,9 +19,39 @@ from utils.keyword_module import (
 )
 
 """
-Gemini 기반 AI 추천 모듈
-- 방 스타일 설명은 캐시/LLM 호출
-- 후보 필터링 후 통합 재랭킹 + 이유 생성은 단일 LLM 호출
+최초 작성자: 김동규
+최초 작성일: 2025-04-20
+수정일: 2025-04-26 (김동규) (전체 추천 파이프라인 흐름 주석 추가)
+
+Gemini 기반 AI 추천 모듈 (Recommend with AI Agent)
+
+[전처리 단계]
+1. 업로드된 방 이미지 임시 저장
+2. Gemini 2.0-flash 모델을 사용해 방 스타일 설명(room style description) 생성
+   - 이미지에 대해 2~3문장 객관적 스타일 설명 생성
+   - 생성 결과를 캐시 디렉토리에 저장하여 재사용 최적화
+
+[검색 단계]
+3. MongoDB에서 전체 제품 목록 조회
+   - 기본 필드(name, description, detail, price, link, imageUrl, category)만 선택
+4. 입력 쿼리 분석 및 후보 제품 필터링
+   - 쿼리에서 키워드 추출 → 카테고리 추정
+   - 카테고리 기반 후보 필터링 (부족하면 키워드 기반, 최종 fallback은 전체)
+   - 최대 10개까지 후보 제품 선택
+
+[후처리 단계]
+5. 후보 제품에 대해 Gemini 2.0-flash를 호출하여 통합 재랭킹 및 추천 이유 생성
+   - 방 스타일, 쿼리, 후보 제품 요약을 하나의 프롬프트로 전달
+   - 최적의 3개 이상 제품을 선정하고 추천 이유(reason)를 JSON 배열로 반환
+6. 추천 결과 매칭 및 포맷 변환
+   - Gemini 응답의 제품명을 기존 후보 리스트와 매칭하여 최종 결과 조합
+   - 제품 이름, 설명, 링크, 이미지, 할인가, 추천 이유를 포함하여 반환
+
+[특징 및 참고]
+- 방 스타일 설명은 최초 요청 시 Gemini 호출, 이후 캐시 활용
+- 후보 선정 로직은 카테고리 → 키워드 → 전체 순으로 fallback
+- 재랭킹과 추천 이유 생성을 단일 Gemini 호출로 처리하여 통합 최적화
+- JSON 파싱 실패 대비를 위해 markdown block에서 안전 추출
 """
 
 # 환경 변수 및 Gemini 설정
@@ -31,7 +59,7 @@ load_dotenv()
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("models/gemini-2.0-flash")
 
-# MongoDB 연결
+# MongoDB 연결 보장
 if not mongo_manager.ready:
     mongo_manager.connect()
 product_collection = mongo_manager.products

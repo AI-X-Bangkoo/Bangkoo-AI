@@ -165,7 +165,7 @@ def extract_shape_from_caption(caption: str, db):
         print(f"[SHAPE] 형태 키 '{match_key}' 추출됨 (매칭: '{synonyms[0]}', 위치: {pos})")
         return match_key, synonyms
 
-    print("[SHAPE] 형태 키 없음")
+    # print("[SHAPE] 형태 키 없음")
     return None, []
 
 # --- 공백 삽입 함수 ---
