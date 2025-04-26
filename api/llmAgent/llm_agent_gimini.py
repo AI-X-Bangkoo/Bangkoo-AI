@@ -7,8 +7,6 @@ import asyncio
 from tempfile import NamedTemporaryFile, gettempdir
 from fastapi import UploadFile
 from dotenv import load_dotenv
-from pymongo import MongoClient
-from collections import Counter
 import google.generativeai as genai
 from utils.markdown_utils import extract_json_from_markdown
 
@@ -23,29 +21,22 @@ from utils.keyword_module import (
 )
 
 """
-최초 작성자: 김동규
-최초 작성일: 2025-04-04
-
 Gemini 기반 AI 추천 모듈
-  - Gemini 호출을 비동기로 처리하며, 결과는 캐싱
-  - 쿼리 키워드 추출, 카테고리 추론 및 필터링은 별도 모듈(keyword_module.py)에서 처리
-  - 재랭킹 단계에서 프롬프트 길이를 줄여 처리 시간을 단축
+- 방 스타일 설명은 캐시/LLM 호출
+- 후보 필터링 후 통합 재랭킹 + 이유 생성은 단일 LLM 호출
 """
 
+# 환경 변수 및 Gemini 설정
 load_dotenv()
-
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 model = genai.GenerativeModel("models/gemini-2.0-flash")
 
+# MongoDB 연결
 if not mongo_manager.ready:
     mongo_manager.connect()
-
-db = mongo_manager.db
 product_collection = mongo_manager.products
 
-# =============================================================================
-# 캐시 디렉터리 설정: OS 임시 디렉터리 하위에 room_style_cache 폴더 생성
-# =============================================================================
+# 캐시 디렉토리 설정
 CACHE_DIR = os.path.join(gettempdir(), "room_style_cache")
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
@@ -53,293 +44,142 @@ if not os.path.exists(CACHE_DIR):
 def get_cached_room_style(image_path: str) -> str:
     cache_path = os.path.join(CACHE_DIR, f"room_style_{os.path.basename(image_path)}.txt")
     if os.path.exists(cache_path):
-        with open(cache_path, "r", encoding="utf-8") as f:
-            return f.read()
+        return open(cache_path, "r", encoding="utf-8").read()
     return None
 
-def cache_room_style(image_path: str, description: str) -> str:
+def cache_room_style(image_path: str, description: str) -> None:
     cache_path = os.path.join(CACHE_DIR, f"room_style_{os.path.basename(image_path)}.txt")
     with open(cache_path, "w", encoding="utf-8") as f:
         f.write(description)
-    return description
 
-# =============================================================================
-# 비동기 Gemini 호출 (방 스타일 설명 생성)
-# =============================================================================
 async def get_room_style_description_async(image_path: str) -> str:
-    start_time = time.time()
+    """방 스타일 설명 생성 및 캐시"""
+    start = time.time()
     cached = get_cached_room_style(image_path)
     if cached:
-        print(f"[DEBUG] 캐시에서 방 스타일 불러옴 (소요시간: {time.time() - start_time:.2f}초)")
+        print(f"[DEBUG] 캐시에서 방 스타일 불러옴 ({time.time()-start:.2f}s)")
         return cached
     prompt = """
-        아래 방 사진을 보고, 스타일 전문가처럼 객관적인 설명을 작성해 주세요.
-
-        - 방의 **전체적인 스타일**, **지배적인 색상**, **공간 분위기**, **구성 요소**를  
-        2~3문장의 자연어 설명문으로 작성해 주세요.
-
-        - 이 설명은 추후 **Semantic Search (의미 기반 검색)**에 사용될 예정입니다.  
-        따라서 문장 속에 실제 이미지에 보이는 **스타일, 분위기, 색상, 배치 정보** 등이 풍부하게 담겨야 합니다.
-
-        - 키워드 요약은 금지하고, 스타일 설명 문장만 작성해 주세요.
-
-        - 예시:
-        "이 방은 밝은 원목 마루와 흰 벽면을 중심으로 구성되어 있어, 북유럽 스타일의 심플하고 따뜻한 느낌을 줍니다.  
-        직선형의 간결한 가구들이 균형 있게 배치되어 있어 전체적인 공간은 정돈된 분위기를 가집니다."
-
-        - 주관적인 표현, 추측, 모호한 말은 금지하며
-        **실제 이미지에 보이는 시각적 정보만** 바탕으로 작성해 주세요.
-        """
+아래 방 사진을 보고 객관적인 스타일 설명을 2~3문장으로 작성해 주세요.
+"""
     with open(image_path, "rb") as f:
-        image_bytes = f.read()
-    response = await asyncio.to_thread(model.generate_content, [prompt, {"mime_type": "image/jpeg", "data": image_bytes}])
-    description = response.text.strip()
-    cache_room_style(image_path, description)
-    print(f"[DEBUG] Gemini 방 스타일 설명 생성 완료 (소요시간: {time.time() - start_time:.2f}초)")
-    return description
+        img_bytes = f.read()
+    resp = await asyncio.to_thread(model.generate_content, [prompt, {"mime_type":"image/jpeg","data":img_bytes}])
+    desc = resp.text.strip()
+    cache_room_style(image_path, desc)
+    print(f"[DEBUG] Gemini 방 스타일 생성 ({time.time()-start:.2f}s)")
+    return desc
 
-# =============================================================================
-# 재랭킹 함수: 후보 제품 정보를 간략하게 요약하고 Gemini 호출을 비동기로 처리
-# =============================================================================
 async def rerank_ai_recommendations_async(
     room_style: str,
     query: str,
     candidate_products: list,
     previous_results=None,
-    min_price=None,
-    max_price=None,
-    keyword=None,
-    style=None,
     category=None
 ) -> str:
-    # 각 후보 제품을 간략히 요약: 이름, 가격, 링크, 상세설명, 이미지 포함
-    product_summary = "\n".join([
-        f"이름: {p['name']}, 가격: {p.get('price', '정보 없음')}, 링크: {p['link']}, 상세설명: {p['detail']}, 이미지: {p['imageUrl']}"
+    """후보 3개 이상 선택 + 추천 이유를 단일 프롬프트로 생성"""
+    # 각 후보 제품 요약
+    summary = "\n".join(
+        f"이름: {p['name']}, 가격: {p.get('price','-')}, 링크: {p['link']}, 설명: {p.get('description','')}"
         for p in candidate_products
-    ])
-
-    filter_info = ""
-    if min_price is not None and max_price is not None:
-        filter_info += f"- 가격대: {min_price:,} ~ {max_price:,}원\n"
-    if keyword:
-        filter_info += f"- 키워드: {keyword}\n"
-    if style:
-        filter_info += f"- 스타일: {style}\n"
-    if category:
-        filter_info += f"- 제품 종류: {category}\n"
-
+    )
+    # 통합 프롬프트
     prompt = f"""
 당신은 인테리어 전문가입니다.
-
-[방 스타일 설명]
+[방 스타일]
 {room_style}
-
-[사용자 요청]
+[요청]
 {query}
 """
-    if filter_info:
-        prompt += f"\n[필터 조건]\n{filter_info}"
     if previous_results:
         prev_json = json.dumps(previous_results, ensure_ascii=False, indent=2)
         prompt += f"\n[이전 추천 결과]\n{prev_json}\n위 결과를 참고하여 다시 3개 이상의 제품을 추천해 주세요."
     if category:
-        prompt += f"""
-- 반드시 '{category}'에 해당하는 제품만 추천해 주세요.
-- '{category}'가 아닌 제품은 '해당 카테고리가 아니므로 제외'라고 이유를 적어주세요.
-- 링크/이미지/이름 등을 임의로 작성하지 마세요. 목록에 있는 제품만 그대로 추천해 주세요.
-"""
+        prompt += f"\n- 반드시 '{category}' 카테고리 제품만 추천하고, 다른 제품은 제외 이유를 적어주세요."
     prompt += f"""
-[추천 후보 제품 요약]
-{product_summary}
-
-[추천 후보 제품 목록]
-아래 제품들은 실제 데이터베이스에서 검색된 후보입니다.
-이 중에서 방 스타일과 사용자 요청, 필터 조건에 가장 적합한 3개 이상의 제품을 고르고 JSON 배열로 반환하세요. 조건 미충족 시 "추천이유"에 이유를 써 주세요
+[후보 제품]
+{summary}
+위 목록에서 가장 적합한 3개 이상 제품을 선택하고, 한 문장 추천 이유와 함께 JSON 배열로 반환하세요.
 형식:
 [
-  {{
-    "이름": "...",
-    "설명": "...",
-    "링크": "...",
-    "이미지": "...",
-    "상세설명": "...",
-    "할인가": "...",
-    "정상가": "...",
-    "csv": "...",
-    "추천이유": "..."
-  }},
+  {{"name":"...","reason":"...","link":"...","image":"...","price":"..."}},
   ...
 ]
 """
-    start_time = time.time()
-    # 비동기로 Gemini 호출: 재랭킹 프롬프트 처리
-    response = await asyncio.to_thread(model.generate_content, [prompt])
-    elapsed = time.time() - start_time
-    print(f"[DEBUG] Gemini 응답 소요시간 (순수 모델): {elapsed:.2f}초")
-    print("[DEBUG] Gemini 재랭킹 응답:\n", response.text)
-    return response.text.strip()
+    start = time.time()
+    resp = await asyncio.to_thread(model.generate_content, [prompt])
+    print(f"[DEBUG] 통합 재랭킹+이유 생성 ({time.time()-start:.2f}s)")
+    return resp.text.strip()
 
-# =============================================================================
-# 필터를 가지고 제품 추천 함수
-# =============================================================================
-# --- 1) Top-3 결정 ---
-async def pick_top_products(room_style: str, query: str, candidates: list) -> list:
-    product_summary = "\n".join(f"{p['name']} | {p['link']}" for p in candidates)
-    pick_prompt = f"""\
-You are an interior expert.
-Room style: {room_style}
-Query: {query}
-
-Here are candidate products (format: name | link):
-{product_summary}
-
-Choose the top 10 most suitable products and return strictly this JSON array **only** (no markdown fences, no extra text):
-[
-  {{ "name": "..." }},
-  {{ "name": "..." }},
-  {{ "name": "..." }}
-]
-"""
-    resp = await asyncio.to_thread(model.generate_content, [pick_prompt])
-    # 1) 원본 출력 디버깅
-    print("[DEBUG] pick_top_products raw resp:", resp.text)
-
-    # 2) Markdown 제거 후 JSON 추출
-    json_str = extract_json_from_markdown(resp.text)
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        # 파싱 실패 시, 에러 로그와 함께 원본을 출력
-        print("[ERROR] pick_top_products JSON 파싱 실패:", e)
-        print("---- raw response start ----")
-        print(resp.text)
-        print("---- raw response end ----")
-        raise
-
-# --- 2) 추천 이유 생성 ---
-async def generate_recommendation_reasons(
-    room_style: str,
-    query: str,
-    picked: list,
-    candidate_map: dict
-) -> list:
-    # 1) summary 에 original description 포함
-    prod_details = []
-    for p in picked:
-        name        = p["name"]
-        desc        = candidate_map[name].get("description", "")
-        detail      = candidate_map[name].get("detail", "")
-        summary_det = (detail[:50] + "…") if len(detail) > 50 else detail
-        prod_details.append(
-            f"{name} | description: {desc} | price: {p.get('price','-')} | detail: {summary_det}"
-        )
-    prod_details_str = "\n".join(prod_details)
-
-    # 2) 프롬프트에 description 키를 출력 스키마로 명시
-    reason_prompt = f"""\
-You are an interior expert.
-Room style: {room_style}
-Query: {query}
-
-Here are the products with their original descriptions:
-{prod_details_str}
-
-For each product, write a one‑sentence recommendation reason.
-**Do NOT include any products that do NOT satisfy the constraints.**
-Return **only** this JSON array (no markdown fences, no extra text), with each object containing exactly these keys:
-[
-  {{
-    "name": "…",
-    "description": "…",
-    "reason": "…"
-  }},
-  …
-]
-"""
-    resp = await asyncio.to_thread(model.generate_content, [reason_prompt])
-    raw = resp.text
-    print("[DEBUG] raw resp:", raw)
-
-    # 3) JSON 뽑아내고 리턴
-    json_str = extract_json_from_markdown(raw)
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError:
-        print("[ERROR] 파싱 실패, raw resp:", raw)
-        raise
-
-
-# --- 메인 추천 함수 ---
 async def recommend_with_ai_agent(
     image_file: UploadFile,
     query: str,
-    min_price: int = None,
-    max_price: int = None,
-    keyword: str = None,
-    style: str = None
+    category: str = None
 ) -> list:
+    """메인 추천 함수"""
     overall_start = time.time()
-    print(f"[DEBUG] /search 진입 - query: {query}")
+    print(f"[DEBUG] /search 진입: {query}")
 
     # 1) 이미지 임시 저장
-    temp = NamedTemporaryFile(delete=False, suffix=".jpg")
-    temp.write(await image_file.read())
-    temp.close()
+    tmp = NamedTemporaryFile(delete=False, suffix='.jpg')
+    tmp.write(await image_file.read())
+    tmp.close()
 
     # 2) 방 스타일 생성
-    room_style = await get_room_style_description_async(temp.name)
+    room_style = await get_room_style_description_async(tmp.name)
 
     # 3) DB 후보 조회 및 필터링
     if not mongo_manager.ready:
         mongo_manager.connect()
-    products = list(mongo_manager.products.find({}, {"_id":0, "name":1, "detail":1, "price":1, "link":1, "imageUrl":1, "category":1, "description": 1}).limit(1000))
-    filtered = []
-    for p in products:
-        try:
-            price = int(str(p.get('price','0')).replace(',',''))
-            if (min_price and price < min_price) or (max_price and price > max_price):
-                continue
-        except:
-            pass
-        filtered.append(p)
+    all_docs = list(product_collection.find({}, {"_id":0, "name":1, "description":1, "detail":1, "price":1, "link":1, "imageUrl":1, "category":1}))
+    # 가격, 키워드, 스타일 필터 제거: 카테고리만 사용
     extracted = extract_keywords_from_query(query)
-    cat = guess_category_from_keywords(extracted, list({p.get('category','') for p in filtered}))
-    cat_filtered = filter_products_by_category(filtered, cat)
-    kw_filtered = filter_by_query_keywords(filtered, query)
-    if len(cat_filtered) >= 5:
-        candidates = cat_filtered
-    elif len(kw_filtered) >= 5:
-        candidates = kw_filtered
-    else:
-        candidates = filtered[:50]
-    print(f"[DEBUG] 후보 수: {len(candidates)}")
+    cat = guess_category_from_keywords(extracted, [p.get('category','') for p in all_docs])
+    cat_filtered = filter_products_by_category(all_docs, cat)
+    kw_filtered = filter_by_query_keywords(all_docs, query)
+    candidates = cat_filtered if len(cat_filtered) >= 5 else (kw_filtered if len(kw_filtered) >= 5 else all_docs)
+    candidates = candidates[:10]
+    print(f"[DEBUG] 후보 수: {len(candidates)} (category filter 적용)")
 
-    # 4) 단계별 LLM 호출
-    top_list = candidates[:30]
-    pick_start = time.time()
-    picked = await pick_top_products(room_style, query, top_list)
-    print(f"[DEBUG] Top-3 결정 소요: {time.time() - pick_start:.2f}s")
+    # 4) 통합 재랭킹 + 추천이유 생성
+    raw = await rerank_ai_recommendations_async(
+        room_style=room_style,
+        query=query,
+        candidate_products=candidates,
+        previous_results=None,
+        category=cat
+    )
+    items = json.loads(extract_json_from_markdown(raw))
 
-    candidate_map = {p['name']: p for p in top_list}
-    reason_start = time.time()
-    reasons = await generate_recommendation_reasons(room_style, query, picked, candidate_map)
-    print(f"[DEBUG] 이유생성 소요: {time.time() - reason_start:.2f}s")
-
-    # 5) 결과 조합
+        # 5) 결과 조합 및 이름 매칭 핸들링
     result = []
-    for item in reasons:
-        name = item['name']
-        prod = candidate_map[name]
+    
+    # 이름 매칭 헬퍼 함수
+    def find_candidate(name):
+        # 정확 일치 우선, 부분 문자열 매칭으로 보조
+        for p in candidates:
+            if p['name'] == name:
+                return p
+        for p in candidates:
+            if name in p['name'] or p['name'] in name:
+                return p
+        return None
+
+    for o in items:
+        cand = find_candidate(o.get('name', ''))
+        if not cand:
+            print(f"[WARNING] 매칭되는 후보 없음: {o.get('name')}")
+            continue
+        # 'reason' 또는 '추천이유' 키 지원
+        reason = o.get('reason') or o.get('추천이유') or ''
         result.append({
-            "이름":         prod["name"],
-            "설명":         prod.get("description", ""),
-            "링크":         prod["link"],
-            "이미지":       prod.get("imageUrl", ""),
-            "상세설명":     prod.get("detail", ""),
-            "할인가":       prod.get("할인가"),
-            "정상가":       prod.get("price"),
-            "csv":         prod.get("csv"),
-            "추천이유":     item["reason"]
+            "이름":     cand['name'],
+            "설명":     cand.get('description', ''),
+            "링크":     cand['link'],
+            "이미지":   cand.get('imageUrl', ''),
+            "상세설명": cand.get('detail', ''),
+            "할인가":   cand.get('price'),
+            "추천이유": reason
         })
 
     print(f"[DEBUG] 전체 처리 시간: {time.time() - overall_start:.2f}s")

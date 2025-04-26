@@ -29,10 +29,6 @@ async def recommend_or_search(
     query: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
     image_url: Optional[str] = Form(None),
-    min_price: Optional[int] = Form(None),
-    max_price: Optional[int] = Form(None),
-    keyword: Optional[str] = Form(None),
-    style: Optional[str] = Form(None),
     user_id: Optional[str] = Form(None)
 ):
     print("[DEBUG] /search 진입")
@@ -90,20 +86,11 @@ async def recommend_or_search(
 
     # 이미지 + 쿼리 (추천 요청)
     if contents is not None and is_valid_query(query):
-        print("[DEBUG] 이미지 + 쿼리 기반 분기 시작")
-        if should_use_image_for_recommendation(query):
-            print("[DEBUG] Gemini 판단 결과: 이미지 기반 추천 필요 → Gemini 추천으로 분기")
-            return await recommend_with_ai_agent(
-                image_upload_file,  # 새로 생성한 UploadFile 사용
-                query,
-                min_price=min_price,
-                max_price=max_price,
-                keyword=keyword,
-                style=style
-            )
-        else:
-            print("[DEBUG] Gemini 판단 결과: 이미지 사용 안함 → 텍스트 기반 하이브리드 검색")
-            return hybrid_search(query)
+        print("[DEBUG] 이미지 + 쿼리 기반 분기 → 무조건 추천")
+        return await recommend_with_ai_agent(
+            image_upload_file,  # 업로드된 이미지
+            query
+        )
 
     # 쿼리만 있는 경우 (이미지 없이)
     if is_valid_query(query):
