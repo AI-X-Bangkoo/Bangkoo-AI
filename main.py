@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from api.search.router import router as search_router
 from api.placement.router import router as placement_router
-from api.detection.router import router as detection_router
 # from api.detection.sam2_dino_mask_detection_router import router as sam2_dino_mask_detection_router
 from model_loader import model_manager
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +17,11 @@ from api.autoRecommend.router import router as analyz_room
 
 app = FastAPI()
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-07
+설명: FastAPI 애플리케이션을 구성하고, 모델 및 MongoDB를 startup 이벤트에서 초기화하며, 각 기능별 API 라우터를 등록
+"""
 
 # 2025-04-12 김범석 추가 (static 파일 접근)
 app.mount("/static", StaticFiles(directory=UPLOAD_DIR), name="static")
@@ -40,8 +44,6 @@ async def startup_event():
 
 app.include_router(search_router, prefix="/api")
 app.include_router(placement_router, prefix="/api")
-
-app.include_router(detection_router, prefix="/api")
 app.include_router(style_recommend_router, prefix="/api")
 app.include_router(style_recommendation, prefix="/api")
 app.include_router(analyz_room, prefix="/api")

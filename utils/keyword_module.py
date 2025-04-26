@@ -65,7 +65,7 @@ def filter_products_by_category(products: list, category: str) -> list:
         cat = p.get("category", "").strip().lower()
         if category in cat:
             matched.append(p)
-    print(f"[DEBUG] 필터링된 카테고리: {category}, 실제 매칭된 개수: {len(matched)}", flush=True)
+    # print(f"[DEBUG] 필터링된 카테고리: {category}, 실제 매칭된 개수: {len(matched)}", flush=True)
     return matched
 
 def filter_by_query_keywords(products: list, query: str) -> list:
@@ -80,7 +80,7 @@ def filter_by_query_keywords(products: list, query: str) -> list:
         list: 키워드가 포함된 제품 리스트
     """
     keywords = extract_keywords_from_query(query)
-    print(f"[DEBUG] 추출된 키워드: {keywords}")
+    # print(f"[DEBUG] 추출된 키워드: {keywords}")
     filtered = []
     for p in products:
         searchable_text = f"{p.get('name', '')} {p.get('description', '')} {p.get('detail', '')}"

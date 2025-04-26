@@ -112,7 +112,7 @@ def image_search(contents: bytes, top_k: int = 50):
         mongo_manager.connect()
 
     cat = category.strip().lower()
-    print(f"[검색 시작] 캡션={caption!r}, 카테고리={cat!r}, shape={shape_key}, color={color_key}")
+    # print(f"[검색 시작] 캡션={caption!r}, 카테고리={cat!r}, shape={shape_key}, color={color_key}")
 
     # combinedEmbedding으로 vectorSearch
     results = perform_vector_search_combined(

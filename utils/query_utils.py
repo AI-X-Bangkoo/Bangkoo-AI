@@ -47,18 +47,6 @@ def get_text_embedding(text):
     text_model = model_manager.text_model
     return text_model.encode([f"query: {text}"], normalize_embeddings=True)
 
-
-# def get_clip_text_embedding(text):
-#     clip_model = model_manager.clip_model
-#     clip_processor = model_manager.clip_processor
-#     device = model_manager.device
-
-#     inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True)
-#     inputs = {k: v.to(device) for k, v in inputs.items()}
-#     with torch.no_grad():
-#         features = clip_model.get_text_features(**inputs)
-#         features = features / features.norm(dim=-1, keepdim=True)
-#     return features.cpu().numpy()
 def get_clip_text_embedding(text):
     clip_model = model_manager.clip_model
     clip_processor = model_manager.clip_processor
@@ -97,23 +85,6 @@ def compute_keyword_bonus(product, keywords):
     matched = sum(1 for k in keywords if k in text)
     return matched / len(keywords) if keywords else 0
 
-# def extract_color_from_caption(caption: str) -> str:
-#     """
-#     이미지 캡션에서 색상 정보를 추출하여 color_keywords에 정의된 색상 중 가장 일치하는 색상 반환
-#     """
-#     if not mongo_manager.ready:
-#         mongo_manager.connect()
-#     db = mongo_manager.db
-#     color_doc = db["color_keywords"].find_one({"_id": "korean"})
-#     if not color_doc or "dict" not in color_doc:
-#         return None
-
-#     color_dict = color_doc["dict"]
-#     caption_lower = caption.lower()
-#     for color, keywords in color_dict.items():
-#         if any(kw.lower() in caption_lower for kw in keywords):
-#             return color
-#     return None
 def extract_color_from_caption(caption: str) -> str:
     """
     이미지 캡션에서 등장 순서를 기준으로 가장 먼저 등장한 색상 키를 반환
@@ -219,24 +190,3 @@ def auto_insert_space(query: str) -> str:
                 break
     parts.append(temp.replace(" ", ""))
     return " ".join(filter(None, parts))
-
-# def auto_insert_space(query: str, db) -> str:
-#     color_doc = db["color_keywords"].find_one({"_id": "korean"})
-#     shape_doc = db["shape_keywords"].find_one({"_id": "korean"})
-#     category_doc = db["category_keywords"].find_one({"_id": "korean"})
-
-#     color_keywords = [item for sublist in color_doc["dict"].values() for item in sublist]
-#     shape_keywords = [item for sublist in shape_doc["dict"].values() for item in sublist]
-#     category_keywords = [item for sublist in category_doc["dict"].values() for item in sublist]
-
-#     parts = []
-#     temp = query
-#     for kw_list in [color_keywords, shape_keywords, category_keywords]:
-#         for kw in sorted(kw_list, key=len, reverse=True):  # 긴 단어 우선
-#             if kw in temp:
-#                 parts.append(kw)
-#                 temp = temp.replace(kw, " ", 1)  # 첫 등장만 제거
-#                 break  # 한 분류당 하나만 추출
-
-#     parts.append(temp.replace(" ", ""))  # 남은 부분
-#     return " ".join(filter(None, parts))

@@ -57,7 +57,7 @@ async def get_room_style_description_async(image_path: str) -> str:
     start = time.time()
     cached = get_cached_room_style(image_path)
     if cached:
-        print(f"[DEBUG] 캐시에서 방 스타일 불러옴 ({time.time()-start:.2f}s)")
+        # print(f"[DEBUG] 캐시에서 방 스타일 불러옴 ({time.time()-start:.2f}s)")
         return cached
     prompt = """
 아래 방 사진을 보고 객관적인 스타일 설명을 2~3문장으로 작성해 주세요.
@@ -67,7 +67,7 @@ async def get_room_style_description_async(image_path: str) -> str:
     resp = await asyncio.to_thread(model.generate_content, [prompt, {"mime_type":"image/jpeg","data":img_bytes}])
     desc = resp.text.strip()
     cache_room_style(image_path, desc)
-    print(f"[DEBUG] Gemini 방 스타일 생성 ({time.time()-start:.2f}s)")
+    # print(f"[DEBUG] Gemini 방 스타일 생성 ({time.time()-start:.2f}s)")
     return desc
 
 async def rerank_ai_recommendations_async(
@@ -108,7 +108,7 @@ async def rerank_ai_recommendations_async(
 """
     start = time.time()
     resp = await asyncio.to_thread(model.generate_content, [prompt])
-    print(f"[DEBUG] 통합 재랭킹+이유 생성 ({time.time()-start:.2f}s)")
+    # print(f"[DEBUG] 통합 재랭킹+이유 생성 ({time.time()-start:.2f}s)")
     return resp.text.strip()
 
 async def recommend_with_ai_agent(
@@ -118,7 +118,7 @@ async def recommend_with_ai_agent(
 ) -> list:
     """메인 추천 함수"""
     overall_start = time.time()
-    print(f"[DEBUG] /search 진입: {query}")
+    # print(f"[DEBUG] /search 진입: {query}")
 
     # 1) 이미지 임시 저장
     tmp = NamedTemporaryFile(delete=False, suffix='.jpg')
@@ -139,7 +139,7 @@ async def recommend_with_ai_agent(
     kw_filtered = filter_by_query_keywords(all_docs, query)
     candidates = cat_filtered if len(cat_filtered) >= 5 else (kw_filtered if len(kw_filtered) >= 5 else all_docs)
     candidates = candidates[:10]
-    print(f"[DEBUG] 후보 수: {len(candidates)} (category filter 적용)")
+    # print(f"[DEBUG] 후보 수: {len(candidates)} (category filter 적용)")
 
     # 4) 통합 재랭킹 + 추천이유 생성
     raw = await rerank_ai_recommendations_async(
@@ -168,7 +168,7 @@ async def recommend_with_ai_agent(
     for o in items:
         cand = find_candidate(o.get('name', ''))
         if not cand:
-            print(f"[WARNING] 매칭되는 후보 없음: {o.get('name')}")
+            # print(f"[WARNING] 매칭되는 후보 없음: {o.get('name')}")
             continue
         # 'reason' 또는 '추천이유' 키 지원
         reason = o.get('reason') or o.get('추천이유') or ''
