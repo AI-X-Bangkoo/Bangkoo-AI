@@ -7,6 +7,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from model_loader import model_manager
 import torch
+import re
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 
@@ -73,6 +74,10 @@ def tokenize_clean(text):
     tokens = okt.morphs(text.lower())
     return [t for t in tokens if t not in _STOPWORDS]
 
+_SIMPLE_Q_RE = re.compile(
+    rf"^({'|'.join(get_color_synonyms().keys())})\s+({'|'.join(get_category_synonyms().keys())})$"
+)
+
 # ——————————————————————————————————————
 # 전역 BM25 모델 캐시
 # ——————————————————————————————————————
@@ -100,6 +105,7 @@ _global_bm25 = BM25Okapi(_global_corpus_tokens)
 # =============================================================================
 # Gemini LLM API 호출 함수 (Gemini 2.0-flash 사용)
 # =============================================================================
+@lru_cache(maxsize=128)
 def call_gemini_llm_all_in_one(query: str) -> dict:
     prompt = f"""
 검색 쿼리 '{query}'에 대해 다음 3가지를 수행해 주세요:
@@ -156,7 +162,7 @@ def get_gemini_all_in_one(query: str):
 # =============================================================================
 # Atlas Search 및 제품 필터링
 # =============================================================================
-def atlas_search(refined_query, attributes):
+def atlas_search(refined_query, attributes, top_k=100):
     db = mongo_manager.db
     product_collection = mongo_manager.products
     
@@ -192,6 +198,8 @@ def atlas_search(refined_query, attributes):
         "should": should_clauses + should_category
         # filter 제거
     }
+    
+    limit_count = top_k * 2
 
     pipeline = [
         {
@@ -200,6 +208,7 @@ def atlas_search(refined_query, attributes):
                 "compound": compound
             }
         },
+        {"$limit": limit_count},
         {
 
             "$match": {
@@ -229,8 +238,7 @@ def atlas_search(refined_query, attributes):
                 "model3dUrl":  1,
                 "searchScore": {"$meta": "searchScore"}
             }
-        },
-        {"$limit": 200}
+        }
     ]
 
 
@@ -465,19 +473,55 @@ def adjust_scores_with_feedback(candidates, base_scores, feedback_weight):
 
 def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes):
     start = time.time()
+    # 1) A/B 가중치는 그대로
     variant_weights = get_reranking_weights()
     print(f"[A/B Variant] 적용된 가중치: {variant_weights}")
-    
-    # 피드백 보정
-    adjusted_scores = adjust_scores_with_feedback(candidates, base_scores, feedback_weight=variant_weights.get("feedback", 0))
-    # 추가로 속성 보정 적용
-    adjusted_scores = adjust_scores_with_strict_filter(candidates, adjusted_scores, attributes, penalty=0.2)
-    
+
+    # 2) 후보 ID 리스트 수집
+    candidate_ids = [cand["링크"] for cand in candidates]
+
+    # 3) 한 번에 feedback 문서들 가져오기
+    feedback_docs = list(
+        mongo_manager.db["candidate_feedback"]
+        .find({"candidate_id": {"$in": candidate_ids}}, 
+              {"candidate_id": 1, "clicks": 1, "impressions": 1})
+    )
+    # 4) candidate_id → feedback 매핑
+    feedback_map = {
+        doc["candidate_id"]: doc for doc in feedback_docs
+    }
+
+    # 5) batch-CTR 보정 함수로 교체
+    def adjust_scores_with_feedback_batch(cands, scores, weight, fb_map):
+        adjusted = scores.copy()
+        for i, cand in enumerate(cands):
+            fb = fb_map.get(cand["링크"])
+            if fb and fb.get("impressions", 0) > 0:
+                ctr = fb.get("clicks", 0) / fb["impressions"]
+            else:
+                ctr = 0.0
+            adjusted[i] += weight * ctr
+        return adjusted
+
+    # 6) feedback 보정 (이제 DB 왕복은 한 번만)
+    fb_weight = variant_weights.get("feedback", 0)
+    adjusted_scores = adjust_scores_with_feedback_batch(
+        candidates, base_scores, fb_weight, feedback_map
+    )
+
+    # 7) 속성(strict filter) 보정은 그대로
+    adjusted_scores = adjust_scores_with_strict_filter(
+        candidates, adjusted_scores, attributes, penalty=0.2
+    )
+
+    # 8) 최종 정렬
     indices = np.argsort(adjusted_scores)[::-1]
     re_ranked = [candidates[i] for i in indices]
+
     end = time.time()
     print(f"피드백 보정 및 속성 보정 적용 소요 시간: {end - start:.2f}초")
     return re_ranked
+
 
 # =============================================================================
 # 하이브리드 서치 + Re-Ranking 최종 함수 (피드백, A/B 테스트, 속성 보정 적용)
@@ -485,13 +529,25 @@ def re_rank_candidates_with_feedback(query, candidates, base_scores, attributes)
 def hybrid_search(query, top_k=None):
     print("[DEBUG] hybrid_search 진입")
     start1 = time.time()
-    start = time.time()
-    gemini_result = get_gemini_all_in_one(query)
-    refined_query = gemini_result["corrected"]
-    attributes = gemini_result["attributes"]
-    expanded_queries = gemini_result["expanded"]
-    end = time.time()
-    print(f"[사용자 피드백 기반 로그 및 재정렬 소요 시간]: {end - start:.2f}초")
+
+    # 1) simple-pattern 체크: "색상 카테고리" 형태 쿼리면 LLM 스킵
+    m = _SIMPLE_Q_RE.match(query)
+    if m:
+        color, category = m.groups()
+        refined_query    = query
+        attributes       = {"color": color, "shape": None, "category": category}
+        expanded_queries = [query]
+        print(f"[DEBUG] 룰 기반 속성 추출 → refined_query={refined_query}, attributes={attributes}")
+        gemini_time = 0.0
+    else:
+        # 2) 그 외에만 LLM 호출
+        start = time.time()
+        gemini_result    = get_gemini_all_in_one(query)
+        refined_query    = gemini_result["corrected"]
+        attributes       = gemini_result["attributes"]
+        expanded_queries = gemini_result["expanded"]
+        gemini_time = time.time() - start
+        print(f"[LLM 처리 소요 시간]: {gemini_time:.2f}초")
     print(f"[DEBUG] 정제된 쿼리: {refined_query}, 추출된 속성: {attributes}")
     
     if not model_manager.ready:
@@ -511,7 +567,7 @@ def hybrid_search(query, top_k=None):
         attributes["category"] = inferred
     print(f"[DEBUG] 최종 카테고리: {attributes.get('category')}")
     
-    products = atlas_search(refined_query, attributes)
+    products = atlas_search(refined_query, attributes, top_k=top_k or 100)
     if not products:
         print("[ERROR] 제품 조회 결과 없음")
         return []
