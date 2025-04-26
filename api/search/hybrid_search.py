@@ -47,31 +47,31 @@ LLM 기반 속성 추론 및 보정 점수를 결합한 하이브리드 서치
 # -------------------------------
 # 동의어/매핑 사전
 # -------------------------------
+_color_doc    = mongo_manager.db["color_keywords"].find_one({"_id": "korean"}) or {}
+_shape_doc    = mongo_manager.db["shape_keywords"].find_one({"_id": "korean"}) or {}
+_category_doc = mongo_manager.db["category_keywords"].find_one({"_id": "korean"}) or {}
+_stop_doc     = mongo_manager.db["stopwords_keywords"].find_one({"_id": "korean"}) or {}
+
+_COLOR_SYNS    = _color_doc.get("dict", {})
+_SHAPE_SYNS    = _shape_doc.get("dict", {})
+_CATEGORY_SYNS = _category_doc.get("dict", {})
+_STOPWORDS     = set(_stop_doc.get("words", []))
+
 def get_color_synonyms():
-    db = mongo_manager.db
-    doc = db["color_keywords"].find_one({"_id": "korean"})
-    return doc["dict"]
+    return _COLOR_SYNS
 
 def get_shape_synonyms():
-    db = mongo_manager.db
-    doc = db["shape_keywords"].find_one({"_id": "korean"})
-    return doc["dict"]
+    return _SHAPE_SYNS
 
 def get_category_synonyms():
-    db = mongo_manager.db
-    doc = db["category_keywords"].find_one({"_id": "korean"})
-    return doc["dict"]
+    return _CATEGORY_SYNS
 
 def get_stopwords():
-    db = mongo_manager.db
-    doc = db["stopwords_keywords"].find_one({"_id": "korean"})
-    return set(doc["words"]) if doc else set()
-
-STOPWORDS = get_stopwords()
+    return _STOPWORDS
 
 def tokenize_clean(text):
     tokens = okt.morphs(text.lower())
-    return [t for t in tokens if t not in STOPWORDS]
+    return [t for t in tokens if t not in _STOPWORDS]
 
 # ——————————————————————————————————————
 # 전역 BM25 모델 캐시
