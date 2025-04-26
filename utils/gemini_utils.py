@@ -42,8 +42,8 @@ def should_use_image_for_recommendation(query: str) -> bool:
     try:
         response = gemini_model.generate_content(prompt)
         answer = response.text.strip().lower()
-        print(f"[DEBUG] Gemini 판단 결과: {answer}")
+        # print(f"[DEBUG] Gemini 판단 결과: {answer}")
         return "예" in answer or "yes" in answer
     except Exception as e:
-        print("[ERROR] Gemini 판단 실패:", e)
+        # print("[ERROR] Gemini 판단 실패:", e)
         return False

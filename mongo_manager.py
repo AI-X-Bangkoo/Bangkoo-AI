@@ -2,6 +2,12 @@ from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
 
+"""
+최초 작성자: 김동규
+최초 작성일: 2025-04-07
+설명: MongoDBManager 클래스를 정의하여 모델 및 DB 초기화를 lazy-load 또는 FastAPI startup 이벤트에서 처리할 수 있도록 구성
+"""
+
 class MongoDBManager:
     def __init__(self):
         self.client = None
