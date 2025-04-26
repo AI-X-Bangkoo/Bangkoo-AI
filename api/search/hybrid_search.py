@@ -6,22 +6,15 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from dotenv import load_dotenv
 from model_loader import model_manager
-import torch
 import re
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
-
 import google.generativeai as genai
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
-# model = genai.GenerativeModel("gemini-1.5-flash")
-model = genai.GenerativeModel("models/gemini-2.0-flash")
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-
 from mongo_manager import mongo_manager
 from utils.query_utils import (
     infer_category,
-    expand_query,  # 기존 동의어 사전 활용 및 동적 LLM 확장과 병행 가능함
+    expand_query,
     get_text_embedding,
     get_clip_text_embedding,
     compute_keyword_bonus,
@@ -32,17 +25,50 @@ from utils.query_utils import (
 )
 from utils.visual_color_utils import get_color_keywords_from_db
 from utils.markdown_utils import extract_json_from_markdown
-
 from rank_bm25 import BM25Okapi
 from konlpy.tag import Okt
 okt = Okt()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+model = genai.GenerativeModel("models/gemini-2.0-flash")
 
 """
 최초 작성자: 김동규
 최초 작성일: 2025-04-02
+수정일: 2025-04-26 (김동규) (전처리/검색/후처리 및 전체 검색 파이프라인 흐름 주석 추가)
 
-의미 기반 임베딩 검색과 BM25 기반 키워드 검색, 
-LLM 기반 속성 추론 및 보정 점수를 결합한 하이브리드 서치
+하이브리드 검색 시스템 (Hybrid Search Pipeline)
+
+[전처리 단계]
+1. 입력 쿼리 분석
+    - 간단 패턴(색상+카테고리 조합) 감지 시 LLM 호출 생략
+    - 일반 쿼리는 Gemini 2.0-flash를 호출하여 쿼리 교정, 속성(color, shape, category) 추출, 확장 쿼리 생성
+2. 모델 준비 상태 확인
+    - 모델 및 MongoDB 연결 상태 점검
+3. 최종 속성 보완
+    - 카테고리 자동 추론(infer_category)로 attributes 보완
+    - 동의어 사전 로드(synonyms)
+
+[검색 단계]
+4. Atlas Search 기반 제품 후보 검색
+    - refined_query를 기준으로 BM25 방식으로 색인 검색
+    - 속성(color/shape) 기반 소프트 필터링 적용
+5. BM25 및 벡터 유사도 계산 (병렬 처리)
+    - BM25Okapi 기반 텍스트 토큰 유사도 점수 계산
+    - textEmbedding + imageEmbedding 벡터 기반 cosine similarity 계산
+6. LLM 속성 보너스 점수 계산
+    - 추출된 속성 키워드 등장빈도 기반 보너스 점수 산출
+7. 점수 가중합 (combine_scores)
+    - 벡터 50%, BM25 30%, LLM 20% 가중합하여 최종 스코어 계산
+8. 점수 임계치 필터링
+    - 최종 점수가 0.5 이상인 후보만 선별
+9. 필터링된 후보 정렬 및 추출
+    - 결합 점수 기준 내림차순 정렬하여 top-k 추출
+
+[후처리 단계]
+10. 피드백 기반 Re-Ranking
+    - 후보 제품의 CTR(click-through rate) 기반 점수 보정
+    - 속성(strict filter) 일치 여부에 따라 추가 보정
+    - 최종적으로 재정렬하여 반환
 """
 
 # -------------------------------

@@ -31,16 +31,16 @@ async def recommend_or_search(
     image_url: Optional[str] = Form(None),
     user_id: Optional[str] = Form(None)
 ):
-    print("[DEBUG] /search 진입")
+    # print("[DEBUG] /search 진입")
     try:
         form_data = await request.form()
-        print("전체 요청 form 데이터:", dict(form_data))
+        # print("전체 요청 form 데이터:", dict(form_data))
     except Exception as e:
-        print("form_data 추출 중 오류 발생:", e)
+        raise ValueError("form_data 추출 중 오류 발생:", e)
 
-    print("query:", query)
-    print("image:", image)
-    print("image_url:", image_url)
+    # print("query:", query)
+    # print("image:", image)
+    # print("image_url:", image_url)
 
     contents = None
     image_upload_file = None
@@ -48,7 +48,7 @@ async def recommend_or_search(
     # 파일 업로드가 있으면 먼저 읽어서 contents에 저장하고, 새 UploadFile 생성
     if image:
         contents = await image.read()
-        print("[DEBUG] 업로드된 이미지 파일 사용")
+        # print("[DEBUG] 업로드된 이미지 파일 사용")
         # 새 UploadFile 생성: BytesIO에 contents를 담아 전달
         image_upload_file = StarletteUploadFile(filename=image.filename, file=io.BytesIO(contents))
     # 파일 업로드가 없고 image_url이 있으면 image_url 처리
@@ -57,14 +57,14 @@ async def recommend_or_search(
             if image_url.startswith("http"):
                 # 직접 접근 가능한 이미지 URL 처리
                 true_url = extract_direct_image_url(image_url)
-                print(f"[DEBUG] 이미지 URL 변환: {true_url}")
+                # print(f"[DEBUG] 이미지 URL 변환: {true_url}")
                 response = requests.get(true_url)
                 if response.status_code != 200:
                     raise HTTPException(status_code=400, detail="이미지 URL 접근 실패")
                 contents = response.content
             else:
                 # base64 처리
-                print("[DEBUG] image_url 파라미터가 base64 데이터인 것으로 간주")
+                # print("[DEBUG] image_url 파라미터가 base64 데이터인 것으로 간주")
                 base64_data = re.sub("^data:image/.+;base64,", "", image_url)
                 contents = base64.b64decode(base64_data)
 
@@ -75,18 +75,18 @@ async def recommend_or_search(
             image_upload_file = StarletteUploadFile(filename="temp.jpg", file=io.BytesIO(contents))
 
         except Exception as e:
-            print(f"[ERROR] image_url 처리 실패: {e}")
+            # print(f"[ERROR] image_url 처리 실패: {e}")
             raise HTTPException(status_code=400, detail="image_url 처리 실패")
 
 
     # 이미지 단독 검색: 쿼리가 없으면 이미지 기반 검색 실행
     if contents is not None and not is_valid_query(query):
-        print("[DEBUG] 이미지 단독 검색으로 분기")
+        # print("[DEBUG] 이미지 단독 검색으로 분기")
         return image_search(contents)
 
     # 이미지 + 쿼리 (추천 요청)
     if contents is not None and is_valid_query(query):
-        print("[DEBUG] 이미지 + 쿼리 기반 분기 → 무조건 추천")
+        # print("[DEBUG] 이미지 + 쿼리 기반 분기 → 무조건 추천")
         return await recommend_with_ai_agent(
             image_upload_file,  # 업로드된 이미지
             query
@@ -94,7 +94,7 @@ async def recommend_or_search(
 
     # 쿼리만 있는 경우 (이미지 없이)
     if is_valid_query(query):
-        print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
+        # print("[DEBUG] 텍스트 하이브리드 검색으로 분기")
         return hybrid_search(query)
 
     raise HTTPException(status_code=400, detail="유효한 검색 조건이 없습니다.")
