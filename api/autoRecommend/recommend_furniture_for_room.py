@@ -106,6 +106,9 @@ async def recommend_furniture_for_room(
 
         return recommended_results
 
+
+
+
     except Exception as e:
         print("❌ 가구 추천 파이프라인 중 오류 발생:", str(e))
         raise HTTPException(status_code=500, detail=f"추천 오류: {str(e)}")
