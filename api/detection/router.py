@@ -13,16 +13,21 @@ from typing import Annotated
 import sys
 import os
 import torch
+import sys
+import os
 
+
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 router = APIRouter()
 
 try:
-    from api.detection.groundingdino.groundingdino.util.inference import load_model, predict
+    from api.detection.GroundingDINO.groundingdino.util.inference import load_model, predict
     from api.detection.sam2.build_sam import build_sam2
     from api.detection.sam2.sam2_image_predictor import SAM2ImagePredictor
     print("GroundingDINO & SAM2 installed.")
     GROUNDINGDINO_AVAILABLE = True
-except ImportError:
+except Exception as e:
+    print("Import error",e)
     print("Warning: GroundingDINO or SAM2 not installed. Object detection features will be disabled.")
     GROUNDINGDINO_AVAILABLE = False
 

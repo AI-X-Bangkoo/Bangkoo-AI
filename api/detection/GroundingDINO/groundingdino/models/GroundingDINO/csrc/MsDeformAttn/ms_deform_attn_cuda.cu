@@ -50,7 +50,7 @@ at::Tensor ms_deform_attn_cuda_forward(
 
     const int im2col_step_ = std::min(batch, im2col_step);
 
-    AT_ASSERTM(batch % im2col_step_ == 0, "batch must be divisible by im2col_step");
+    AT_ASSERTM(batch % im2col_step_ == 0, "batch(%d) must divide im2col_step(%d)", batch, im2col_step_);
     
     auto output = at::zeros({batch, num_query, num_heads, channels}, value.options());
 
@@ -62,17 +62,17 @@ at::Tensor ms_deform_attn_cuda_forward(
     for (int n = 0; n < batch/im2col_step_; ++n)
     {
         auto columns = output_n.select(0, n);
-        AT_DISPATCH_FLOATING_TYPES(value.scalar_type(), "ms_deform_attn_forward_cuda", ([&] {
+        AT_DISPATCH_FLOATING_TYPES(value.type(), "ms_deform_attn_forward_cuda", ([&] {
             ms_deformable_im2col_cuda(at::cuda::getCurrentCUDAStream(),
-                value.data_ptr<scalar_t>() + n * im2col_step_ * per_value_size,
-                spatial_shapes.data_ptr<int64_t>(),
-                level_start_index.data_ptr<int64_t>(),
-                sampling_loc.data_ptr<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
-                attn_weight.data_ptr<scalar_t>() + n * im2col_step_ * per_attn_weight_size,
+                value.data<scalar_t>() + n * im2col_step_ * per_value_size,
+                spatial_shapes.data<int64_t>(),
+                level_start_index.data<int64_t>(),
+                sampling_loc.data<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
+                attn_weight.data<scalar_t>() + n * im2col_step_ * per_attn_weight_size,
                 batch_n, spatial_size, num_heads, channels, num_levels, num_query, num_point,
-                columns.data_ptr<scalar_t>());
+                columns.data<scalar_t>());
+
         }));
-        
     }
 
     output = output.view({batch, num_query, num_heads*channels});
@@ -117,7 +117,7 @@ std::vector<at::Tensor> ms_deform_attn_cuda_backward(
 
     const int im2col_step_ = std::min(batch, im2col_step);
 
-    AT_ASSERTM(batch % im2col_step_ == 0, "batch must be divisible by im2col_step");
+    AT_ASSERTM(batch % im2col_step_ == 0, "batch(%d) must divide im2col_step(%d)", batch, im2col_step_);
 
     auto grad_value = at::zeros_like(value);
     auto grad_sampling_loc = at::zeros_like(sampling_loc);
@@ -132,20 +132,20 @@ std::vector<at::Tensor> ms_deform_attn_cuda_backward(
     for (int n = 0; n < batch/im2col_step_; ++n)
     {
         auto grad_output_g = grad_output_n.select(0, n);
-        AT_DISPATCH_FLOATING_TYPES(value.scalar_type(), "ms_deform_attn_backward_cuda", ([&] {
+        AT_DISPATCH_FLOATING_TYPES(value.type(), "ms_deform_attn_backward_cuda", ([&] {
             ms_deformable_col2im_cuda(at::cuda::getCurrentCUDAStream(),
-                grad_output_g.data_ptr<scalar_t>(),
-                value.data_ptr<scalar_t>() + n * im2col_step_ * per_value_size,
-                spatial_shapes.data_ptr<int64_t>(),
-                level_start_index.data_ptr<int64_t>(),
-                sampling_loc.data_ptr<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
-                attn_weight.data_ptr<scalar_t>() + n * im2col_step_ * per_attn_weight_size,
-                batch_n, spatial_size, num_heads, channels, num_levels, num_query, num_point,
-                grad_value.data_ptr<scalar_t>() +  n * im2col_step_ * per_value_size,
-                grad_sampling_loc.data_ptr<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
-                grad_attn_weight.data_ptr<scalar_t>() + n * im2col_step_ * per_attn_weight_size);
+                                    grad_output_g.data<scalar_t>(),
+                                    value.data<scalar_t>() + n * im2col_step_ * per_value_size,
+                                    spatial_shapes.data<int64_t>(),
+                                    level_start_index.data<int64_t>(),
+                                    sampling_loc.data<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
+                                    attn_weight.data<scalar_t>() + n * im2col_step_ * per_attn_weight_size,
+                                    batch_n, spatial_size, num_heads, channels, num_levels, num_query, num_point,
+                                    grad_value.data<scalar_t>() +  n * im2col_step_ * per_value_size,
+                                    grad_sampling_loc.data<scalar_t>() + n * im2col_step_ * per_sample_loc_size,
+                                    grad_attn_weight.data<scalar_t>() + n * im2col_step_ * per_attn_weight_size);
+
         }));
-        
     }
 
     return {

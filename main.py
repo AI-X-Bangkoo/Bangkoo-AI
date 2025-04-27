@@ -14,6 +14,9 @@ from mongo_manager import mongo_manager
 from api.productsEmbedding.router import router as embedding_router
 from api.autoRecommend.router import router as style_recommendation
 from api.autoRecommend.router import router as analyz_room
+from api.detection.router import router as detection_router
+
+
 
 app = FastAPI()
 
@@ -48,6 +51,7 @@ app.include_router(style_recommend_router, prefix="/api")
 app.include_router(style_recommendation, prefix="/api")
 app.include_router(analyz_room, prefix="/api")
 app.include_router(embedding_router, prefix="/api")
+app.include_router(detection_router, prefix="/api")
 # app.include_router()
 
 

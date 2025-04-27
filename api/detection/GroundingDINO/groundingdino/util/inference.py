@@ -13,7 +13,6 @@ from groundingdino.models import build_model
 from groundingdino.util.misc import clean_state_dict
 from groundingdino.util.slconfig import SLConfig
 from groundingdino.util.utils import get_phrases_from_posmap
-from utils.dino_sam2_config import DEVICE
 
 # ----------------------------------------------------------------------------------------------------------------------
 # OLD API
@@ -27,7 +26,7 @@ def preprocess_caption(caption: str) -> str:
     return result + "."
 
 
-def load_model(model_config_path: str, model_checkpoint_path: str, device: torch.device):
+def load_model(model_config_path: str, model_checkpoint_path: str, device: str = "cuda"):
     args = SLConfig.fromfile(model_config_path)
     args.device = device
     model = build_model(args)
@@ -57,11 +56,10 @@ def predict(
         caption: str,
         box_threshold: float,
         text_threshold: float,
-        device: torch.device,
+        device: str = "cuda",
         remove_combined: bool = False
 ) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
     caption = preprocess_caption(caption=caption)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = model.to(device)
     image = image.to(device)
@@ -142,7 +140,7 @@ class Model:
         self,
         model_config_path: str,
         model_checkpoint_path: str,
-        device: torch.device
+        device: str = "cuda"
     ):
         self.model = load_model(
             model_config_path=model_config_path,
