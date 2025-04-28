@@ -8,9 +8,7 @@ client = GeminiClient()
 # 🎯 프롬프트 모음 (확장성 있게 dict 처리)
 PROMPTS = {
     "add": (
-        "Add the red-outlined object to the scene, using the reference image below. "
-        "Blend it naturally with the lighting, shadow, and perspective of the room. "
-        "Do not modify anything outside the red outline."
+        "Make the object inside the red box look photorealistic and naturally integrated into the room."
     ),
     "remove": (
         "Remove the object outlined in red. "
@@ -18,13 +16,9 @@ PROMPTS = {
         "Do not change anything else."
     ),
     "move": (
-        "Make the red-outlined object match the wall and floor perspective. "
-        "Do not move it — just adjust its angle to fit the room’s depth. "
-        "Leave everything else unchanged."
+        "Blend the object outlined in red naturally into the room without changing the background."
     ),
-    # "move": ...  # 필요 시 추가 가능
 }
-
 async def process_placement(mode: str, background_file, reference_file=None):
     # 유효한 작업 모드인지 확인
     if mode not in PROMPTS:
