@@ -5,7 +5,7 @@ from io import BytesIO
 
 client = GeminiClient()
 
-# 🎯 프롬프트 모음 (확장성 있게 dict 처리)
+# 🎯 프롬프트 모음
 PROMPTS = {
     "add": (
         "Make the object inside the red box look photorealistic and naturally integrated into the room."
@@ -19,6 +19,8 @@ PROMPTS = {
         "Blend the object outlined in red naturally into the room without changing the background."
     ),
 }
+
+
 async def process_placement(mode: str, background_file, reference_file=None):
     # 유효한 작업 모드인지 확인
     if mode not in PROMPTS:
@@ -29,11 +31,11 @@ async def process_placement(mode: str, background_file, reference_file=None):
 
     # 작업 모드에 따라 처리 방식 분기
     if mode == "add":
-        if reference_file is None:
-            return {"error": "Reference image required for 'add' mode"}
-
-        ref_img = Image.open(BytesIO(await reference_file.read())).convert("RGBA")
-        result_img = client.generate_image(PROMPTS["add"], bg_img, ref_img)
+        # if reference_file is None:
+        #     return {"error": "Reference image required for 'add' mode"}
+        #
+        # ref_img = Image.open(BytesIO(await reference_file.read())).convert("RGBA")
+        result_img = client.generate_image(PROMPTS["add"], bg_img)
 
     elif mode == "remove":
         result_img = client.generate_image(PROMPTS["remove"], bg_img)
