@@ -1,16 +1,11 @@
 import os
-import certifi               
-from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from PIL import Image
 from io import BytesIO
+from dotenv import load_dotenv
 
-# 1) .env 로드
 load_dotenv()
-
-# 2) SSL_CERT_FILE 강제 지정
-os.environ['SSL_CERT_FILE'] = certifi.where()
 
 class GeminiClient:
     def __init__(self):

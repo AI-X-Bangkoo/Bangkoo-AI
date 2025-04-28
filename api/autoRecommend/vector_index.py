@@ -14,32 +14,49 @@ class VectorIndex:
         self.product_docs = []  # 인덱스 순서대로 doc 리스트
 
     def build(self):
-        # 1) MongoDB에서 모든 textEmbedding 불러오기
+         # 1) MongoDB에서 모든 textEmbedding 불러오기
         load_dotenv()
         client = MongoClient(os.getenv("MONGO_URI"), 
-                             socketTimeoutMS=300000,
-                             connectTimeoutMS=300000,
-                             serverSelectionTimeoutMS=300000)
+                            socketTimeoutMS=300000,
+                            connectTimeoutMS=300000,
+                            serverSelectionTimeoutMS=300000)
         db = client["bangkoo"]
         cursor = db["products"].find(
             {"textEmbedding": {"$exists": True}},
-            {"textEmbedding":1, "name":1, "price":1, "category":1,
-             "link":1, "imageUrl":1, "description":1}
+            {"textEmbedding": 1, "name": 1, "price": 1, "category": 1,
+            "link": 1, "imageUrl": 1, "description": 1}
         )
 
         embeddings = []
+        valid_docs = []
+
         for doc in cursor:
-            embeddings.append(doc["textEmbedding"])
-            self.product_docs.append(doc)
-        embeddings = np.array(embeddings).astype("float32")
+            emb = doc.get("textEmbedding")
+            # 필터링
+            if emb is None:
+                continue
+            if not isinstance(emb, list):
+                continue
+            if len(emb) != 768:
+                continue
+            # 모두 통과하면 추가
+            embeddings.append(emb)
+            valid_docs.append(doc)
+
+        if not embeddings:
+            raise ValueError("❗ 유효한 임베딩이 없습니다. build() 실패")
+
+        embeddings = np.array(embeddings, dtype="float32")
+        self.product_docs = valid_docs
 
         # 2) (Inner Product 기준) 벡터 정규화
         faiss.normalize_L2(embeddings)
 
-        # 3) 인덱스 생성 → Flat(IP) 또는 HNSW 등 선택 가능
+        # 3) 인덱스 생성 → Flat(IP)
         dim = embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dim)
         self.index.add(embeddings)
+
 
     def query(self, query_vec: np.ndarray, top_k: int = 10):
         # query_vec: (1, dim) float32, 이미 normalize_L2 됐다 가정
